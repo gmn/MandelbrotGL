@@ -10,7 +10,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
-#include <dirent.h>
+#if defined(_WIN32) || defined(_WIN64)
+ #include <windows.h>
+#else
+ #include <dirent.h>
+#endif
 
 // cpp headers
 #include <string>
@@ -51,6 +55,37 @@ static bool _getint( const char * p, long int *li ) {
     return true;
 }
 
+
+#if defined(_WIN32) || defined(_WIN64)
+int GetNextLowestFilenameNumber( const char * prefix ) {
+	HANDLE hFind;
+	WIN32_FIND_DATA FindFileData;
+	int count = 0;
+	size_t plen = strlen(prefix);
+	const char * c;
+
+	if ( (hFind = FindFirstFile( "./*.bmp", &FindFileData )) != INVALID_HANDLE_VALUE ) {
+		do {
+			printf( "Found: %s\n", FindFileData.cFileName );
+			if ( (c = strstr(FindFileData.cFileName, prefix)) ) {
+				c += plen;
+				char buf[10];
+				memcpy( buf, c, filename_zeros );
+				buf[filename_zeros] = 0;
+				long int x;
+				if ( !_getint(buf, &x) )
+					continue;
+				if ( x > count )
+					count = x;
+			}
+		} while ( FindNextFile( hFind, &FindFileData ) );
+		FindClose( hFind );
+	}
+	return count + 1;
+}
+
+#else /* Not Windows */
+
 // We write numbered filenames. We have to check for any with the current prefix so we dont over write them.
 int GetNextLowestFilenameNumber( const char * prefix ) {
     DIR * dir_p = opendir( "." );
@@ -85,6 +120,7 @@ int GetNextLowestFilenameNumber( const char * prefix ) {
 
     return count + 1;
 }
+#endif
 
 
 struct BMPWriter {
