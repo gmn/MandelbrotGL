@@ -7,8 +7,9 @@ This project uses SDL2, and GLEW. It compiles on Windows 7 & 10, and Ubuntu Linu
 
 There are a few simple key bindings:
 
-| Left-click  | moves center of view to the clicked on point |
+| Key | description of action/effect |
 | --- | --- |
+| Left-click  | moves center of view to the clicked on point |
 | Mouse-wheel | Zooms in or out |
 | F           | toggle fullscreen |
 | H           | increase hue |
