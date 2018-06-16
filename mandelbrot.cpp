@@ -974,6 +974,12 @@ public:
 
         my_stbtt_initfont();
 
+        // fix scaling early - or else first click goes to wrong location
+        CenterAtPoint( windowWidth/2, windowHeight/2 );
+        double xRange[2];
+        double yRange[2];
+        mandelbrot.GetRange( xRange, yRange );
+
         return true;
     }
 
@@ -1119,6 +1125,29 @@ public:
         dataChanged = true;
     }
 
+    void CenterAtPoint( int x, int y ) {
+        double * lookAt = mandelbrot.GetLookAt();
+        double * zoom = mandelbrot.GetZoom();
+
+        // mouse clicked this point in screen-space
+        double point[2] = { (double)x, (double) y };
+        double window[2] = { (double)windowWidth, (double)windowHeight };
+
+        // conversion between window-space and mandelbrot-space
+        double ratio[2] = { zoom[0] / window[0], zoom[1] / window[1] };
+
+        // mouse click point in mandelbrot-space
+        double p_scaled[2] = { ratio[0] * point[0], ratio[1] * point[1] };
+
+        double xRange[2] = { lookAt[0]-zoom[0]/2.0, lookAt[0]+zoom[0]/2.0 };
+        double yRange[2] = { lookAt[1]-zoom[1]/2.0, lookAt[1]+zoom[1]/2.0 };
+        double center[2] = { (xRange[1]-xRange[0])/2.0 , (yRange[1]-yRange[0])/2.0 };
+
+        // using vector arithmetic:
+        //  center = p_scaled + q ; To shift to p we add -q ; -q = -1 * ( center - p_scaled )
+        mandelbrot.IncLookAt( -1.0 * ( center[0] - p_scaled[0] ), -1.0 * ( center[1] - p_scaled[1] ) );
+    }
+
     void HandleMouseClick( int x, int y, SDL_MouseButtonEvent * b_evt )
     {
       #define P(r) printf( " --> %s : (%d, %d)\n", #r, x, y );
@@ -1132,27 +1161,9 @@ public:
 
                 ResetMouseline();
 
+                CenterAtPoint( x, y );
+
                 double * lookAt = mandelbrot.GetLookAt();
-                double * zoom = mandelbrot.GetZoom();
-
-                // mouse clicked this point in screen-space
-                double point[2] = { (double)x, (double) y };
-                double window[2] = { (double)windowWidth, (double)windowHeight };
-
-                // conversion between window-space and mandelbrot-space
-                double ratio[2] = { zoom[0] / window[0], zoom[1] / window[1] };
-
-                // mouse click point in mandelbrot-space
-                double p_scaled[2] = { ratio[0] * point[0], ratio[1] * point[1] };
-
-                double xRange[2] = { lookAt[0]-zoom[0]/2.0, lookAt[0]+zoom[0]/2.0 };
-                double yRange[2] = { lookAt[1]-zoom[1]/2.0, lookAt[1]+zoom[1]/2.0 };
-                double center[2] = { (xRange[1]-xRange[0])/2.0 , (yRange[1]-yRange[0])/2.0 };
-
-                // using vector arithmetic:
-                // center = p_scaled + q ; To shift to p we add -q ; -q = -1 * ( center - p_scaled )
-                mandelbrot.IncLookAt( -1.0 * ( center[0] - p_scaled[0] ), -1.0 * ( center[1] - p_scaled[1] ) );
-
                 printf( "lookAt: (%lf, %lf)\n", lookAt[0], lookAt[1] );
                 dataChanged = true;
                 break;
