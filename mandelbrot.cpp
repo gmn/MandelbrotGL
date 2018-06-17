@@ -265,9 +265,9 @@ private:
 public:
 
     MandelbrotV2( int w, int h ) :
-            Mandelbrot(w, h),
+            Mandelbrot( w, h ),
             zoomStart( 3.14159265358979 ),
-            lookAt{ -0.49999999999, +0.0000000001 },
+            lookAt{ -0.5, 0.0 },
             hue( 150.0 ),
             saturation( 1.0 ),
             vibrance( 14.0 ),
@@ -276,6 +276,24 @@ public:
     {
         zoom[0] = zoomStart;
         zoom[1] = zoomStart;
+    }
+
+    void ResetValues() {
+        lookAt[ 0 ] = -0.5;
+        lookAt[ 1 ] = 0.0;
+        zoom[ 0 ] = zoomStart;
+        zoom[ 1 ] = zoomStart;
+        hue = 150.0;
+        saturation = 1.0;
+        vibrance = 14.0;
+        colorFilter = FILTER_BLUE;
+    }
+
+    void ResetLocation() {
+        lookAt[ 0 ] = -0.5;
+        lookAt[ 1 ] = 0.0;
+        zoom[ 0 ] = zoomStart;
+        zoom[ 1 ] = zoomStart;
     }
 
     struct IntDoubleDouble {
@@ -837,7 +855,9 @@ private:
     bool gui_show_demo_window;
     bool gui_quit_requested;
     bool gui_redraw_requested;
-    bool gui_reset_requested;
+    bool gui_reset_all_requested;
+    bool gui_reset_location_requested;
+    bool gui_screenshot_requested;
 
 public:
 
@@ -862,7 +882,9 @@ public:
             gui_show_demo_window( false ),
             gui_quit_requested( false ),
             gui_redraw_requested( false ),
-            gui_reset_requested( false )
+            gui_reset_all_requested( false ),
+            gui_reset_location_requested( false ),
+            gui_screenshot_requested( false )
     {
         windowTitle = "OpenGL Mandelbrot Viewer";
         windowWidth = width_;
@@ -1050,13 +1072,17 @@ public:
 
         my_stbtt_initfont();
 
+        ScalingFix();
+
+        return true;
+    }
+
+    void ScalingFix() {
         // fix scaling early - or else first click goes to wrong location
         CenterAtPoint( windowWidth/2, windowHeight/2 );
         double xRange[2];
         double yRange[2];
         mandelbrot.GetRange( xRange, yRange );
-
-        return true;
     }
 
     static void InitScreenTexture( GLuint * tex_obj, GLuint * array_handle, int width, int height ) {
@@ -1264,6 +1290,32 @@ public:
         dataChanged = true;
     }
 
+    void SaveScreenshot() {
+        char filename_prefix[ 256 ];
+        sprintf( filename_prefix, "mandelbrot-%dx%d-", windowWidth, windowHeight );
+
+        int img_counter = GetNextLowestFilenameNumber( filename_prefix );
+        if ( img_counter < 0 ) {
+            fprintf( stderr, "there was an error reading directory\n" );
+            fflush(stderr);
+            return;
+        }
+
+        char filename[256];
+        snprintf( filename, sizeof(filename), "%s%05d.bmp", filename_prefix, img_counter );
+
+        printf( "writing hardcopy to \"%s\"\n", filename );
+        if ( !BMPWriter::WriteRGB( filename, screenTextureBuffer, windowWidth, windowHeight ) ) {
+            fprintf( stderr, "there was an error writing to %s\n", filename );
+            fflush(stderr);
+            return;
+        }
+
+        char buf[1024];
+        snprintf( buf, sizeof(buf), "wrote:  %s", filename );
+        fileMessage.Set( buf, 3000, windowWidth/2 - 150, windowHeight/2 - 150 );
+    }
+
     void CenterAtPoint( int x, int y ) {
         double * lookAt = mandelbrot.GetLookAt();
         double * zoom = mandelbrot.GetZoom();
@@ -1371,27 +1423,8 @@ public:
                 dataChanged = true;
             }
             break;
-        case SDLK_o: {
-                char filename_prefix[ 256 ];
-                sprintf( filename_prefix, "mandelbrot-%dx%d-", windowWidth, windowHeight );
-
-                int img_counter = GetNextLowestFilenameNumber( filename_prefix );
-                if ( img_counter < 0 )
-                    break;
-
-                char filename[256];
-                snprintf( filename, sizeof(filename), "%s%05d.bmp", filename_prefix, img_counter );
-
-                printf( "writing hardcopy to \"%s\"\n", filename );
-                if ( !BMPWriter::WriteRGB( filename, screenTextureBuffer, windowWidth, windowHeight ) ) {
-                    fprintf( stderr, "there was an error writing to %s\n", filename );
-                    fflush(stderr);
-                }
-
-                char buf[1024];
-                snprintf( buf, sizeof(buf), "wrote:  %s", filename );
-                fileMessage.Set( buf, 3000, windowWidth/2 - 150, windowHeight/2 - 150 );
-            }
+        case SDLK_o:
+            SaveScreenshot();
             break;
 
         case SDLK_m: {
@@ -1594,9 +1627,9 @@ public:
                 mandelbrot.GetSaturation( &saturation );
                 mandelbrot.GetVibrance( &vibrance );
 
-                double hlow = 10.0, hhigh = 400.0;
-                double slow = 0.1 , shigh = 4.0;
-                double vlow = 1.0 , vhigh = 40.0;
+                double hlow = 10.0, hhigh = 500.0;
+                double slow = 0.1 , shigh = 5.0;
+                double vlow = 1.0 , vhigh = 50.0;
 
                 ImGui::SliderScalar( "Hue", ImGuiDataType_Double, hue, &hlow, &hhigh, "%.3lf", 1.0f );
                 ImGui::SliderScalar( "Saturation", ImGuiDataType_Double, saturation, &slow, &shigh, "%.3lf", 1.0f );
@@ -1637,12 +1670,18 @@ public:
             ImGui::Separator();
             ImGui::Text( " " );
 
-            if ( ImGui::Button( "Reset" ) )
-                gui_reset_requested = true;
-
-            if ( ImGui::Button( "Redraw" ) )
+            if ( ImGui::Button( "Draw" ) )
                 gui_redraw_requested = true;
+            ImGui::SameLine();
+            if ( ImGui::Button( "Screenshot" ) )
+                gui_screenshot_requested = true;
+            ImGui::SameLine();
+            if ( ImGui::Button( "Re-Center" ) )
+                gui_reset_location_requested = true;
 
+            if ( ImGui::Button( "Reset All" ) )
+                gui_reset_all_requested = true;
+            ImGui::SameLine();
             if ( ImGui::Button( "Quit" ) )
                 gui_quit_requested = true;
 
@@ -1742,8 +1781,27 @@ public:
                 gui_redraw_requested = false;
             }
 
+            if ( gui_reset_all_requested ) {
+                mandelbrot.ResetValues();
+                ScalingFix();
+                gui_reset_all_requested = false;
+                dataChanged = true;
+            }
+
+            if ( gui_reset_location_requested ) {
+                mandelbrot.ResetLocation();
+                ScalingFix();
+                gui_reset_location_requested = false;
+                dataChanged = true;
+            }
+
             Draw( dataChanged );
             dataChanged = false;
+
+            if ( gui_screenshot_requested ) {
+                gui_screenshot_requested = false;
+                SaveScreenshot();
+            }
         }
     }
 

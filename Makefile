@@ -40,9 +40,9 @@ $(GL3W):
 clean:
 	@if [ -e mandelbrot.o ]; then echo rm mandelbrot.o; rm mandelbrot.o; fi
 	@if [ -e $(EXE) ]; then echo rm $(EXE); rm $(EXE); fi
-	@if [ -e imgui.ini ]; then echo rm imgui.ini; rm imgui.ini; fi
 	@if [ -e OUT ]; then echo rm OUT; rm OUT; fi
 
 distclean: clean
 	@cd imgui; make clean;
+	@if [ -e imgui.ini ]; then echo rm imgui.ini; rm imgui.ini; fi
 
