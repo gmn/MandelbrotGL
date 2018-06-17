@@ -463,6 +463,10 @@ public:
         return m;
     }
 
+    void GetHue( double ** hue_ ) { *hue_ = &hue; }
+    void GetSaturation( double ** saturation_ ) { *saturation_ = &saturation; }
+    void GetVibrance( double ** vibrance_ ) { *vibrance_ = &vibrance; }
+
     // Some constants used with smoothColor
     const double logBase = 1.0 / log(2.0);
     const double logHalfBase = log(0.5) * logBase;
@@ -828,6 +832,12 @@ private:
     bool useNativeWindow; // use the current desktop resolution for fullscreen;
                           // if false, fullscreen resolution is same as window resolution: widthxheight
 
+    bool gui_show_control_panel;
+    bool gui_show_another_window;
+    bool gui_show_demo_window;
+    bool gui_quit_requested;
+    bool gui_redraw_requested;
+
 public:
 
     explicit Application( int width_, int height_, bool fullscreen_ =false, bool useNativeWindow_ =true ) :
@@ -845,7 +855,12 @@ public:
             message_p( nullptr ),
             mouse_line( nullptr ),
             mouse_active( 0 ),
-            mouse_activity_start( 0 )
+            mouse_activity_start( 0 ),
+            gui_show_control_panel( true ),
+            gui_show_another_window( false ),
+            gui_show_demo_window( false ),
+            gui_quit_requested( false ),
+            gui_redraw_requested( false )
     {
         windowTitle = "OpenGL Mandelbrot Viewer";
         windowWidth = width_;
@@ -889,14 +904,14 @@ public:
         // Turn on double buffering with a 24bit Z buffer.
         // You may need to change this to 16 or 32 for your system
         SDL_GL_SetAttribute( SDL_GL_DOUBLEBUFFER, 1 );
+        SDL_GL_SetAttribute( SDL_GL_DEPTH_SIZE, 24 );
+        SDL_GL_SetAttribute( SDL_GL_STENCIL_SIZE, 8 );
 
 #if GL_VERSION_MAJOR > 2
         // SDL_GL_CONTEXT_CORE gives us only the newer version, deprecated functions are disabled
         SDL_GL_SetAttribute( SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE );
         SDL_GL_SetAttribute( SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG );
         SDL_GL_SetAttribute( SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE );
-        SDL_GL_SetAttribute( SDL_GL_DEPTH_SIZE, 24 );
-        SDL_GL_SetAttribute( SDL_GL_STENCIL_SIZE, 8 );
 #endif
 
         SDL_DisplayMode current;
@@ -979,8 +994,9 @@ public:
         ImGui_ImplOpenGL2_Init();
 
         // Setup style
-        ImGui::StyleColorsDark();
-        //ImGui::StyleColorsClassic();
+        //ImGui::StyleColorsLight();
+        //ImGui::StyleColorsDark();
+        ImGui::StyleColorsClassic();
     }
 
     bool Init()
@@ -1386,11 +1402,35 @@ public:
             if ( 5 == ++drawCrosshair )
                 drawCrosshair = 0;
             break;
+
+        case SDLK_g:
+            gui_show_control_panel = !gui_show_control_panel;
+            break;
+
         default:
             break;
         }
 
         return true;
+    }
+
+    // returns true if event was consumed by IMGUI
+    bool ImguiProcessedEvent( SDL_Event * event_p ) {
+        bool mouseDownOnly = false;
+
+        mouseDownOnly = ImGui_ImplSDL2_ProcessEvent( event_p );
+
+
+        //return ( io.WantCaptureMouse || io.WantCaptureKeyboard );
+        /**
+         * Only block for keyboard input. This way 'q' key will still fall through and quit
+         * when the mouse is hovering over Imgui. We only want to block keyboard when we
+         * actually entering an input into a Scaler field.
+         *
+         * Also, we want the mouse to update even if its over the Gui window.
+         */
+
+        return mouseDownOnly || ImGui::GetIO().WantCaptureKeyboard;
     }
 
     void PollEvents( bool & loop, int & input_latency )
@@ -1400,10 +1440,12 @@ public:
         SDL_Event event;
         while ( SDL_PollEvent( &event ) )
         {
+            if ( ImguiProcessedEvent( &event ) ) {
+                continue;
+            }
+
             // saw any input at all, begin a short timer to allow inputs to accumulate
             input_latency = SDL_GetTicks();
-
-            ImGui_ImplSDL2_ProcessEvent( &event );
 
             switch ( event.type ) {
             case SDL_MOUSEBUTTONDOWN:
@@ -1522,63 +1564,106 @@ public:
 
     void ImguiDrawOverlay() {
         // Start the ImGui frame
-        //ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplOpenGL2_NewFrame();
+        //ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL2_NewFrame( mainWindow );
         ImGui::NewFrame();
 
-        bool dont_know_what_this_does = true;
-        bool show_demo_window = false;
-        bool show_another_window = false;
 
-        // WINDOW 1
-        ImGui::Begin( "Control Panel", &dont_know_what_this_does );
-        static float f = 0.0f;
-        static int counter = 0;
-        ImGui::Text("Hello, world!");                           // Display some text (you can use a format string too)
-        ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-        ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our windows open/close state
-        ImGui::Checkbox("Another Window", &show_another_window);
+        // control panel window
+        if ( gui_show_control_panel ) {
+            ImGui::Begin( "Control Panel", &gui_show_control_panel );
+            ImGui::Text( "Mandelbrot variables and configuration\n" );
 
-        if (ImGui::Button("Button"))                            // Buttons return true when clicked (NB: most widgets return true when edited/activated)
-            counter++;
-        ImGui::SameLine();
-        ImGui::Text("counter = %d", counter);
+            //-----------------
+            ImGui::Text( " " );
+            ImGui::Separator();
+            ImGui::Text( " " );
 
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
-        ImGui::End();
+            {
+                double * hue       ;
+                double * saturation;
+                double * vibrance  ;
 
-        // WINDOW 2
-        // 2. Show another simple window. In most cases you will use an explicit Begin/End pair to name your wi    ndows.
-        if (show_another_window)
+                mandelbrot.GetHue( &hue );
+                mandelbrot.GetSaturation( &saturation );
+                mandelbrot.GetVibrance( &vibrance );
+
+                double hlow = 10.0, hhigh = 400.0;
+                double slow = 0.1 , shigh = 4.0;
+                double vlow = 1.0 , vhigh = 40.0;
+
+                ImGui::SliderScalar( "Hue", ImGuiDataType_Double, hue, &hlow, &hhigh, "%.3lf", 1.0f );
+                ImGui::SliderScalar( "Saturation", ImGuiDataType_Double, saturation, &slow, &shigh, "%.3lf", 1.0f );
+                ImGui::SliderScalar( "Vibrance", ImGuiDataType_Double, vibrance, &vlow, &vhigh, "%.3lf", 1.0f );
+                ImGui::Text( " " );
+            }
+
+            //ImGui::Checkbox( "Another Window", &gui_show_another_window );
+            ImGui::Checkbox( "Show ImGui Demo", &gui_show_demo_window );
+
+            {
+                ImGui::Text( "Window Resolution:  %d, %d", windowWidth, windowHeight );
+                ImGui::Text( "Mouse window coordinates:  %d, %d", currentMouseLocation[0], currentMouseLocation[1] );
+                ImGui::Text( "Time to compute last frame: %u.%u sec", mandelbrot.GetComputeTime() / 1000, ( mandelbrot.GetComputeTime() % 1000 ) / 100 );
+
+                ImGui::Text( " " );
+            }
+
+            {
+                double * la = mandelbrot.GetLookAt();
+                double * zoom = mandelbrot.GetZoom();
+
+                ImGui::Text( "Virtual Center Location: " );
+                //ImGui::SameLine();
+                ImGui::InputScalar( "center x",  ImGuiDataType_Double, &la[0], NULL );
+                //ImGui::SameLine();
+                ImGui::InputScalar( "center y",  ImGuiDataType_Double, &la[1], NULL );
+
+                ImGui::Text( "Zoom: " );
+                //ImGui::SameLine();
+                ImGui::InputScalar( "zoom x",  ImGuiDataType_Double, &zoom[0], NULL );
+                //ImGui::SameLine();
+                ImGui::InputScalar( "zoom y",  ImGuiDataType_Double, &zoom[1], NULL );
+            }
+
+            //-----------------
+            ImGui::Text( " " );
+            ImGui::Separator();
+            ImGui::Text( " " );
+
+            if ( ImGui::Button( "Redraw" ) )
+                gui_redraw_requested = true;
+
+            if ( ImGui::Button( "Quit" ) )
+                gui_quit_requested = true;
+
+
+            ImGui::End();
+        } // control panel
+
+
+        // WINDOW 2 - sample window, not using yet
+        if ( gui_show_another_window )
         {
-            ImGui::Begin("Another Window", &show_another_window);
+            ImGui::Begin("Another Window", &gui_show_another_window);
             ImGui::Text("Hello from another window!");
             if (ImGui::Button("Close Me"))
-                show_another_window = false;
+                gui_show_another_window = false;
             ImGui::End();
         }
 
-        // 3. Show the ImGui demo window. Most of the sample code is in ImGui::ShowDemoWindow(). Read its code     to learn more about Dear ImGui!
-        if (show_demo_window)
+        // Window 3 - Show the ImGui demo window.
+        if ( gui_show_demo_window )
         {
-            ImGui::SetNextWindowPos(ImVec2(650, 20), ImGuiCond_FirstUseEver); // Normally user code doesn't nee    d/want to call this because positions are saved in .ini file anyway. Here we just want to make the demo initial     state a bit more friendly!
-            ImGui::ShowDemoWindow(&show_demo_window);
+            ImGui::SetNextWindowPos( ImVec2(650, 20), ImGuiCond_FirstUseEver );
+            ImGui::ShowDemoWindow( &gui_show_demo_window );
         }
 
-
         // DRAW
-//        glLoadIdentity();
-//        glPushMatrix();
-
         ImGui::Render();
-        //ImGui_ImplOpenGL3_RenderDrawData( ImGui::GetDrawData() );
         ImGui_ImplOpenGL2_RenderDrawData( ImGui::GetDrawData() );
-
-        //SDL_GL_MakeCurrent( mainWindow, mainGLContext );
-        //ImGuiIO& imgui_io = ImGui::GetIO();
-        //glViewport(0, 0, (int)imgui_io.DisplaySize.x, (int)imgui_io.DisplaySize.y);
-//        glPopMatrix();
+        //ImGui_ImplOpenGL3_RenderDrawData( ImGui::GetDrawData() );
     }
 
     void Render() {
@@ -1590,12 +1675,13 @@ public:
         // draw the computed mandelbrot
         DrawScreenTexture( textureHandle, screenTextureBuffer );
 
-        // draw the GUI
-        ImguiDrawOverlay();
-
+        // mouse line, crosshair and text goes behind gui
+        DrawMouseline();
         DrawCrosshairs();
         DrawMessages();
-        DrawMouseline();
+
+        // draw the GUI
+        ImguiDrawOverlay();
 
         // done drawing GL
         glFlush();  // flush all GL commands
@@ -1620,7 +1706,7 @@ public:
     }
 
     void Run() {
-        // Clear our buffer with a black background. The same as: SDL_RenderClear(&renderer);
+        // Clear buffer with black background. Same as: SDL_RenderClear(&renderer);
         glClear(GL_COLOR_BUFFER_BIT);
         SDL_GL_SwapWindow( mainWindow );
 
@@ -1632,7 +1718,7 @@ public:
         bool loop = true;
         int updateTime = 0;
 
-        while ( loop )
+        while ( loop && !gui_quit_requested )
         {
             PollEvents( loop, updateTime );
 
@@ -1641,6 +1727,11 @@ public:
             int t1 = SDL_GetTicks();
             if ( dataChanged && t1 - updateTime >= 0 && t1 - updateTime < wait_for_input ) {
                 continue;
+            }
+
+            if ( gui_redraw_requested ) {
+                dataChanged = true;
+                gui_redraw_requested = false;
             }
 
             Draw( dataChanged );

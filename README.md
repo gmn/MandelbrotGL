@@ -12,6 +12,7 @@ There are a few simple key bindings:
 | Left-click  | moves center of view to the clicked on point |
 | Mouse-wheel | Zooms in or out |
 | F           | toggle fullscreen |
+| G           | Show/Hide Control Panel Gui |
 | H           | increase hue |
 | shift+H     | decrease hue |
 | S           | increase saturation |
