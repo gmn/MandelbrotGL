@@ -837,6 +837,7 @@ private:
     bool gui_show_demo_window;
     bool gui_quit_requested;
     bool gui_redraw_requested;
+    bool gui_reset_requested;
 
 public:
 
@@ -860,7 +861,8 @@ public:
             gui_show_another_window( false ),
             gui_show_demo_window( false ),
             gui_quit_requested( false ),
-            gui_redraw_requested( false )
+            gui_redraw_requested( false ),
+            gui_reset_requested( false )
     {
         windowTitle = "OpenGL Mandelbrot Viewer";
         windowWidth = width_;
@@ -1416,10 +1418,10 @@ public:
 
     // returns true if event was consumed by IMGUI
     bool ImguiProcessedEvent( SDL_Event * event_p ) {
-        bool mouseDownOnly = false;
+        //bool mouseDragging = ImGui::GetCurrentContext()->MovingWindow != NULL;
+        //bool mouseInsideGuiWindowBorder = false;
 
-        mouseDownOnly = ImGui_ImplSDL2_ProcessEvent( event_p );
-
+        ImGui_ImplSDL2_ProcessEvent( event_p );
 
         //return ( io.WantCaptureMouse || io.WantCaptureKeyboard );
         /**
@@ -1430,7 +1432,10 @@ public:
          * Also, we want the mouse to update even if its over the Gui window.
          */
 
-        return mouseDownOnly || ImGui::GetIO().WantCaptureKeyboard;
+        SDL_Keysym * key = &event_p->key.keysym;
+        bool Quit = key->sym == SDLK_q || key->sym == SDLK_ESCAPE || event_p->type == SDL_QUIT;
+
+        return !Quit && ( ImGui::GetIO().WantCaptureKeyboard || ImGui::GetIO().WantCaptureMouse );
     }
 
     void PollEvents( bool & loop, int & input_latency )
@@ -1631,6 +1636,9 @@ public:
             ImGui::Text( " " );
             ImGui::Separator();
             ImGui::Text( " " );
+
+            if ( ImGui::Button( "Reset" ) )
+                gui_reset_requested = true;
 
             if ( ImGui::Button( "Redraw" ) )
                 gui_redraw_requested = true;
