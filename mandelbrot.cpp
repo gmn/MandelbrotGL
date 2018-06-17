@@ -23,6 +23,7 @@
 // OpenGL / glew Headers
 #define GL3_PROTOTYPES 1
 #include <GL/glew.h>
+//#include <GL/gl.h>
 
 // SDL2 Headers
 #include <SDL2/SDL.h>
@@ -32,6 +33,15 @@
 #include "stb_truetype.h"
 #define FONT_FILENAME "./DejaVuSans-Bold.ttf"
 
+// imgui headers
+#include "imgui/imgui.h"
+#include "imgui/imgui_impl_sdl.h"
+//#include "imgui/imgui_impl_opengl3.h"
+#include "imgui/imgui_impl_opengl2.h"
+
+//#define GL_VERSION_MAJOR 3
+#define GL_VERSION_MAJOR 2
+#define GL_VERSION_MINOR 2
 
 const unsigned int filename_zeros = 5;
 
@@ -779,10 +789,13 @@ private:
     SDL_Window * mainWindow;
 
     // Our opengl context handle
-    SDL_GLContext mainContext;
+    SDL_GLContext mainGLContext;
 
     unsigned char * screenTextureBuffer;
+
+    // for the persistent mandelbrot texture
     GLuint textureHandle;
+    GLuint arrayHandle;
 
     bool drawInside;
     bool drawOutside;
@@ -806,9 +819,18 @@ private:
 
     TimedMessage fileMessage;
 
+    int currentMouseLocation[2];
+    struct desktopInfo_t {
+        int width, height, refreshRate;
+        int dummy;
+    } desktopInfo;
+
+    bool useNativeWindow; // use the current desktop resolution for fullscreen;
+                          // if false, fullscreen resolution is same as window resolution: widthxheight
+
 public:
 
-    explicit Application( int width_, int height_, bool _fs =false ) :
+    explicit Application( int width_, int height_, bool fullscreen_ =false, bool useNativeWindow_ =true ) :
             bytesPerPixel( 3 ),
             mainWindow( nullptr ),
             screenTextureBuffer( nullptr ),
@@ -828,9 +850,12 @@ public:
         windowTitle = "OpenGL Mandelbrot Viewer";
         windowWidth = width_;
         windowHeight = height_;
-        if ( _fs ) {
+        if ( fullscreen_ ) {
             fullscreen_flag = SDL_WINDOW_FULLSCREEN;
         }
+        currentMouseLocation[ 0 ] = width_ / 2;
+        currentMouseLocation[ 1 ] = height_ / 2;
+        memset( &desktopInfo, 0, sizeof( desktopInfo_t ) );
     }
 
     ~Application() {
@@ -854,19 +879,31 @@ public:
         }
     }
 
-    static bool SetOpenGLAttributes()
+    bool SetOpenGLAttributes()
     {
         // Set our OpenGL version.
-        // SDL_GL_CONTEXT_CORE gives us only the newer version, deprecated functions are disabled
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-
         // 3.2 is part of the modern versions of OpenGL, but most video cards should be able to run it
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+        SDL_GL_SetAttribute( SDL_GL_CONTEXT_MAJOR_VERSION, GL_VERSION_MAJOR );
+        SDL_GL_SetAttribute( SDL_GL_CONTEXT_MINOR_VERSION, GL_VERSION_MINOR );
 
         // Turn on double buffering with a 24bit Z buffer.
         // You may need to change this to 16 or 32 for your system
-        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+        SDL_GL_SetAttribute( SDL_GL_DOUBLEBUFFER, 1 );
+
+#if GL_VERSION_MAJOR > 2
+        // SDL_GL_CONTEXT_CORE gives us only the newer version, deprecated functions are disabled
+        SDL_GL_SetAttribute( SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE );
+        SDL_GL_SetAttribute( SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG );
+        SDL_GL_SetAttribute( SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE );
+        SDL_GL_SetAttribute( SDL_GL_DEPTH_SIZE, 24 );
+        SDL_GL_SetAttribute( SDL_GL_STENCIL_SIZE, 8 );
+#endif
+
+        SDL_DisplayMode current;
+        SDL_GetCurrentDisplayMode(0, &current);
+        desktopInfo.width = current.w;
+        desktopInfo.height = current.h;
+        desktopInfo.refreshRate = current.refresh_rate;
 
         return true;
     }
@@ -896,13 +933,14 @@ public:
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
         // specify the clear value of the depth buffer
-        glClearDepth(1.0f);
+        glClearDepth( 1.0f );
         glDepthFunc( GL_ALWAYS );
-        glEnable( GL_DEPTH_TEST );
+        glDisable( GL_DEPTH_TEST );
+        //glEnable( GL_DEPTH_TEST );
 
         // blend
-        //glDisable(GL_BLEND); // blend incoming colors with colors in the buffers
-        glEnable(GL_BLEND); // blend incoming colors with colors in the buffers
+        //glDisable( GL_BLEND ); // blend incoming colors with colors in the buffers
+        glEnable( GL_BLEND ); // blend incoming colors with colors in the buffers
         glBlendFunc( GL_SRC_ALPHA, GL_DST_ALPHA );
 
         // cull backfaces
@@ -927,32 +965,49 @@ public:
         std::cout << "SDL_GL_CONTEXT_MINOR_VERSION: " << value << std::endl;
     }
 
+    void ImguiInit() {
+
+        // Setup Dear ImGui binding
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+        ImGuiIO& io = ImGui::GetIO();
+        (void)io;
+        //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // Enable Keyboard Controls
+
+        ImGui_ImplSDL2_InitForOpenGL( mainWindow, mainGLContext );
+        //ImGui_ImplOpenGL3_Init();
+        ImGui_ImplOpenGL2_Init();
+
+        // Setup style
+        ImGui::StyleColorsDark();
+        //ImGui::StyleColorsClassic();
+    }
+
     bool Init()
     {
         // Initialize SDL's Video subsystem
-        if (SDL_Init(SDL_INIT_VIDEO) < 0)
-        {
+        if ( SDL_Init(SDL_INIT_VIDEO|SDL_INIT_TIMER) < 0 ) {
             std::cout << "Failed to init SDL\n";
             return false;
         }
 
+        // do before window init
+        SetOpenGLAttributes(); //// FIXME - BUG!! - turn this off and Mandelbrot displays, ON and imgui displays
+
         // Create our window centered at 512x512 resolution
-        mainWindow = SDL_CreateWindow( windowTitle.c_str(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, windowWidth, windowHeight, SDL_WINDOW_OPENGL );
+        mainWindow = SDL_CreateWindow( windowTitle.c_str(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, windowWidth, windowHeight, SDL_WINDOW_OPENGL /*|SDL_WINDOW_RESIZABLE*/ );
 
         // Check that everything worked out okay
-        if ( !mainWindow )
-        {
+        if ( !mainWindow ) {
             std::cout << "Unable to create window\n";
-            CheckSDLError(__LINE__);
+            CheckSDLError(__LINE__); // FIXME I hate this naive function
             return false;
         }
 
         // Create our opengl context and attach it to our window
-        mainContext = SDL_GL_CreateContext( mainWindow );
+        mainGLContext = SDL_GL_CreateContext( mainWindow );
 
-        SetOpenGLAttributes();
-
-        // This makes our buffer swap syncronized with the monitor's vertical refresh
+        // enable vsync
         SDL_GL_SetSwapInterval(1);
 
         // Init GLEW
@@ -961,10 +1016,13 @@ public:
         glewExperimental = GL_TRUE;
         glewInit();
         #endif
+        //gl3wInit();
+
+        ImguiInit();
 
         screenTextureBuffer = (unsigned char *) calloc( (unsigned int)( windowWidth * windowHeight * bytesPerPixel ) + 1u, 1u );
 
-        InitScreenTexture( &textureHandle, 1 );
+        InitScreenTexture( &textureHandle, &arrayHandle, windowWidth, windowHeight );
 
         SDL_ShowCursor(1);
 
@@ -983,28 +1041,87 @@ public:
         return true;
     }
 
-    static void InitScreenTexture( GLuint * tex_obj, GLuint num =1 ) {
+    static void InitScreenTexture( GLuint * tex_obj, GLuint * array_handle, int width, int height ) {
         glEnable( GL_TEXTURE_2D );
 
-        // as API state-machine to generate the texture object handle(s)
-        glGenTextures( num, tex_obj );
+        //
+        // TEXTURE
+        //
 
-        // bind the generated id to a texture type
+        // ask API state-machine to generate texture object handle
+        glGenTextures( 1, tex_obj );
+
+        glActiveTexture( GL_TEXTURE0 );
+
+        // set the generated id as a texture type
         glBindTexture( GL_TEXTURE_2D, *tex_obj );
+        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, 0 );
 
         // GL_NEAREST displays the actual computed pixel from texture data rather than an interpolation
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
+        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER );
+        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER );
+
+        glBindTexture( GL_TEXTURE_2D, 0 );
+        glDisable( GL_TEXTURE_2D );
+
+#if 0
+    for opengl >= 3.2
+
+        //
+        // vertex buffer object (VBO) with texture coordinates
+        //
+        glEnableClientState( GL_VERTEX_ARRAY );
+        glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+
+        int tex_coords[4] = { 0,0 , 0,1 , 1,1 , 1,0 };
+        int vertices[4] = { 0,windowHeight , 0,0 , windowWidth,0 , windowWidth,windowHeight }
+
+        glGenBuffer( 1, array_handle );
+        glBindBuffer( GL_ARRAY_BUFFER, *array_handle );
+        glBufferData( GL_ARRAY_BUFFER, 3 * 2, vertices, GL_STATIC_DRAW /* set once and reuse */ );
+
+        //glVertexPointer( 3, GL_UNSIGNED_CHAR, 0, vertices );
+        glTexCoordPointer( 2, GL_UNSIGNED_CHAR, 0, (void*)(sizeof(unsigned char)*3*4) );
+
+        glDisableClientState(GL_VERTEX_ARRAY);
+        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+#endif
+
+#if 0
+        // A GL Framebuffer groups 0, 1, or more textures, and 0 or 1 depth buffer.
+
+        // DEPTH
+        glGenTextures(1, &depthTexture);
+        glBindTexture(GL_TEXTURE_2D, depthTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        //glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, fbo_width, fbo_height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        // Build the frameBuffer.
+        glGenFramebuffers( 1, fb_obj );
+        glBindFramebuffer( GL_FRAMEBUFFER, *fb_obj );
+        glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, *tex_obj, 0 );
+        glFramebufferTexture2D( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0 );
+        GLenum status = glCheckFramebufferStatus( GL_FRAMEBUFFER );
+        if ( status != GL_FRAMEBUFFER_COMPLETE )
+            fprintf(stderr, "GL Framebuffer isn't happy about something\n");// Error
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#endif
     }
 
-    void DrawScreenTexture( GLuint texNum, unsigned char * bytes ) {
-        // initialize
-        glMatrixMode( GL_MODELVIEW );
-        //glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
-        glClear( GL_COLOR_BUFFER_BIT );
+    void DrawScreenTexture( GLuint texNum, unsigned char * bytes )
+    {
         //glLoadIdentity();
         //glPushMatrix();
         glEnable( GL_TEXTURE_2D );
+
+        glActiveTexture(GL_TEXTURE0);
 
         //load it into the graphics hardware:
         glBindTexture( GL_TEXTURE_2D, texNum );
@@ -1082,9 +1199,9 @@ public:
         if ( !mouse_line )
             return;
 
-        // turn off mouse line if we're not active for 5 seconds
+        // turn off mouse line if we're not active for N seconds
         int t1 = SDL_GetTicks();
-        if ( 0 == mouse_activity_start || t1 - mouse_activity_start > 2000 ) {
+        if ( 0 == mouse_activity_start || t1 - mouse_activity_start > 1500 ) {
             mouse_activity_start = t1;
             mouse_active = 0;
             mouse_line = nullptr;
@@ -1114,13 +1231,17 @@ public:
         xy[0] = x;
         xy[1] = windowHeight - y;
 
-        if ( ++mouse_active > 7 ) {
-            mouse_line = xy;
+        if ( ++mouse_active > 6 ) {
+            mouse_line = xy; // this instructs draw function to draw mouse line
         }
+
+        currentMouseLocation[ 0 ] = x;
+        currentMouseLocation[ 1 ] = y;
     }
 
     void HandleMouseWheel( int x, int y ) {
         printf( " --> mousewheel : (%d, %d)\n", x, y );
+        //CenterAtPoint( currentMouseLocation[0], currentMouseLocation[1] );
         mandelbrot.ZoomMult( 1.0 + 0.142857 * y );
         dataChanged = true;
     }
@@ -1282,6 +1403,8 @@ public:
             // saw any input at all, begin a short timer to allow inputs to accumulate
             input_latency = SDL_GetTicks();
 
+            ImGui_ImplSDL2_ProcessEvent( &event );
+
             switch ( event.type ) {
             case SDL_MOUSEBUTTONDOWN:
                 HandleMouseClick( event.button.x, event.button.y, &event.button );
@@ -1397,14 +1520,85 @@ public:
         my_stbtt_print( 2, 2, buf );
     }
 
+    void ImguiDrawOverlay() {
+        // Start the ImGui frame
+        //ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplOpenGL2_NewFrame();
+        ImGui_ImplSDL2_NewFrame( mainWindow );
+        ImGui::NewFrame();
+
+        bool dont_know_what_this_does = true;
+        bool show_demo_window = false;
+        bool show_another_window = false;
+
+        // WINDOW 1
+        ImGui::Begin( "Control Panel", &dont_know_what_this_does );
+        static float f = 0.0f;
+        static int counter = 0;
+        ImGui::Text("Hello, world!");                           // Display some text (you can use a format string too)
+        ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
+        ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our windows open/close state
+        ImGui::Checkbox("Another Window", &show_another_window);
+
+        if (ImGui::Button("Button"))                            // Buttons return true when clicked (NB: most widgets return true when edited/activated)
+            counter++;
+        ImGui::SameLine();
+        ImGui::Text("counter = %d", counter);
+
+        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+        ImGui::End();
+
+        // WINDOW 2
+        // 2. Show another simple window. In most cases you will use an explicit Begin/End pair to name your wi    ndows.
+        if (show_another_window)
+        {
+            ImGui::Begin("Another Window", &show_another_window);
+            ImGui::Text("Hello from another window!");
+            if (ImGui::Button("Close Me"))
+                show_another_window = false;
+            ImGui::End();
+        }
+
+        // 3. Show the ImGui demo window. Most of the sample code is in ImGui::ShowDemoWindow(). Read its code     to learn more about Dear ImGui!
+        if (show_demo_window)
+        {
+            ImGui::SetNextWindowPos(ImVec2(650, 20), ImGuiCond_FirstUseEver); // Normally user code doesn't nee    d/want to call this because positions are saved in .ini file anyway. Here we just want to make the demo initial     state a bit more friendly!
+            ImGui::ShowDemoWindow(&show_demo_window);
+        }
+
+
+        // DRAW
+//        glLoadIdentity();
+//        glPushMatrix();
+
+        ImGui::Render();
+        //ImGui_ImplOpenGL3_RenderDrawData( ImGui::GetDrawData() );
+        ImGui_ImplOpenGL2_RenderDrawData( ImGui::GetDrawData() );
+
+        //SDL_GL_MakeCurrent( mainWindow, mainGLContext );
+        //ImGuiIO& imgui_io = ImGui::GetIO();
+        //glViewport(0, 0, (int)imgui_io.DisplaySize.x, (int)imgui_io.DisplaySize.y);
+//        glPopMatrix();
+    }
+
     void Render() {
+        // init for drawing
+        glMatrixMode( GL_MODELVIEW );
+        glClear( GL_COLOR_BUFFER_BIT );
+        SDL_GL_MakeCurrent( mainWindow, mainGLContext );
+
+        // draw the computed mandelbrot
         DrawScreenTexture( textureHandle, screenTextureBuffer );
+
+        // draw the GUI
+        ImguiDrawOverlay();
+
         DrawCrosshairs();
         DrawMessages();
         DrawMouseline();
 
         // done drawing GL
-        glFlush(); // flush all GL commands
+        glFlush();  // flush all GL commands
         glFinish(); // block until all GL execution is complete
 
         SDL_GL_SwapWindow( mainWindow );
@@ -1428,7 +1622,7 @@ public:
     void Run() {
         // Clear our buffer with a black background. The same as: SDL_RenderClear(&renderer);
         glClear(GL_COLOR_BUFFER_BIT);
-        SDL_GL_SwapWindow(mainWindow);
+        SDL_GL_SwapWindow( mainWindow );
 
         if ( fullscreen_flag ) {
             SDL_SetWindowFullscreen( mainWindow, fullscreen_flag );
@@ -1455,14 +1649,20 @@ public:
     }
 
     void Shutdown() {
-        if ( !mainWindow && !screenTextureBuffer )
+        if ( !mainWindow || !screenTextureBuffer )
             return;
 
+        // imgui
+        //ImGui_ImplOpenGL3_Shutdown();
+        ImGui_ImplOpenGL2_Shutdown();
+        ImGui_ImplSDL2_Shutdown();
+        ImGui::DestroyContext();
+
         // Delete our OpengL context
-        SDL_GL_DeleteContext(mainContext);
+        SDL_GL_DeleteContext( mainGLContext );
 
         // Destroy our window
-        SDL_DestroyWindow(mainWindow);
+        SDL_DestroyWindow( mainWindow );
 
         mainWindow = nullptr;
 
@@ -1520,8 +1720,11 @@ static int ParseArguments( int argc, char ** argv, const char * exename, int * w
 
 int main( int argc, char ** argv )
 {
-    int width = 1280;
-    int height = 720;
+#define DEFAULT_WIDTH 1280
+#define DEFAULT_HEIGHT 720
+
+    int width = DEFAULT_WIDTH;
+    int height = DEFAULT_HEIGHT;
 
     char * p = strrchr( argv[0], '/' );
     const char * exename = p ? p + 1 : argv[0];
@@ -1534,12 +1737,20 @@ int main( int argc, char ** argv )
     if ( res != 0 )
         return res;
 
+    bool userSpecifiedResolution = ( width != DEFAULT_WIDTH ) || ( height != DEFAULT_HEIGHT );
+
     // create application
     if ( fullscreen )
         printf( "Going fullscreen @: %d x %d.  (use '%s -xy <width>x<height>' to set custom resolution, -h for full help)\n", width, height, exename );
     else
         printf( "Creating window %d x %d.  (use '%s -xy <width>x<height>' to set custom resolution, -h for full help)\n", width, height, exename );
-    Application app( width, height, fullscreen );
+
+
+    // FIXME: should be singleton
+    //  Application & app = Application::GetApplication();
+
+    // declare our app
+    Application app( width, height, fullscreen, !userSpecifiedResolution );
 
     // initialize
     if (!app.Init())
