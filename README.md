@@ -23,3 +23,4 @@ There are a few simple key bindings:
 | O           | output a hardcopy of the screen (writes file to local directory) |
 | Q or ESCAPE | quits/exits the program |
 | C           | changes crosshair type (or disables it) |
+| ? or /      | show help window |

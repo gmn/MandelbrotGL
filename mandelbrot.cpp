@@ -851,7 +851,7 @@ private:
                           // if false, fullscreen resolution is same as window resolution: widthxheight
 
     bool gui_show_control_panel;
-    bool gui_show_another_window;
+    bool gui_show_help_window;
     bool gui_show_demo_window;
     bool gui_quit_requested;
     bool gui_redraw_requested;
@@ -878,7 +878,7 @@ public:
             mouse_active( 0 ),
             mouse_activity_start( 0 ),
             gui_show_control_panel( true ),
-            gui_show_another_window( false ),
+            gui_show_help_window( false ),
             gui_show_demo_window( false ),
             gui_quit_requested( false ),
             gui_redraw_requested( false ),
@@ -1442,6 +1442,12 @@ public:
             gui_show_control_panel = !gui_show_control_panel;
             break;
 
+        case SDLK_QUESTION:
+        case SDLK_SLASH:
+            gui_show_help_window = !gui_show_help_window;
+            break;
+
+
         default:
             break;
         }
@@ -1637,16 +1643,34 @@ public:
                 ImGui::Text( " " );
             }
 
-            //ImGui::Checkbox( "Another Window", &gui_show_another_window );
-            ImGui::Checkbox( "Show ImGui Demo", &gui_show_demo_window );
-
             {
-                ImGui::Text( "Window Resolution:  %d, %d", windowWidth, windowHeight );
-                ImGui::Text( "Mouse window coordinates:  %d, %d", currentMouseLocation[0], currentMouseLocation[1] );
-                ImGui::Text( "Time to compute last frame: %u.%u sec", mandelbrot.GetComputeTime() / 1000, ( mandelbrot.GetComputeTime() % 1000 ) / 100 );
+                int lcol = 190;
 
-                ImGui::Text( " " );
+                ImGui::Columns( 2, "res", false );
+                ImGui::SetColumnWidth( 0, lcol );
+                ImGui::Text( "Window Resolution:" );
+                ImGui::NextColumn();
+                ImGui::Text( "%d, %d", windowWidth, windowHeight );
+                ImGui::NextColumn();
+
+                ImGui::Columns( 2, "mousecoord", false );
+                ImGui::SetColumnWidth( 0, lcol );
+                ImGui::Text( "Mouse Coordinates:" );
+                ImGui::NextColumn();
+                ImGui::Text( "%d, %d", currentMouseLocation[0], currentMouseLocation[1] );
+                ImGui::NextColumn();
+
+                ImGui::Columns( 2, "time2compute", false );
+                ImGui::SetColumnWidth( 0, lcol );
+                ImGui::Text( "Frame compute time:" );
+                ImGui::NextColumn();
+                ImGui::Text( "%u.%u sec", mandelbrot.GetComputeTime() / 1000, ( mandelbrot.GetComputeTime() % 1000 ) / 100 );
+                ImGui::NextColumn();
+
             }
+
+            ImGui::Columns(1);
+            ImGui::Text( " " );
 
             {
                 double * la = mandelbrot.GetLookAt();
@@ -1664,6 +1688,11 @@ public:
                 //ImGui::SameLine();
                 ImGui::InputScalar( "zoom y",  ImGuiDataType_Double, &zoom[1], NULL );
             }
+
+            ImGui::Text( " " );
+            ImGui::Checkbox( "Help Menu", &gui_show_help_window );
+            ImGui::SameLine();
+            ImGui::Checkbox( "ImGui Demo", &gui_show_demo_window );
 
             //-----------------
             ImGui::Text( " " );
@@ -1690,13 +1719,64 @@ public:
         } // control panel
 
 
-        // WINDOW 2 - sample window, not using yet
-        if ( gui_show_another_window )
+        // WINDOW 2 - help window
+        if ( gui_show_help_window )
         {
-            ImGui::Begin("Another Window", &gui_show_another_window);
-            ImGui::Text("Hello from another window!");
-            if (ImGui::Button("Close Me"))
-                gui_show_another_window = false;
+            struct cmd_t {
+                const char * cmd;
+                const char * desc;
+            } cmds[] = {
+                "ACTION or KEY", "DESCRIPTION",
+                "", "",
+                "Left-click", "moves center of view",
+                "Mouse-wheel", "Zooms in or out",
+                "F", "toggle fullscreen",
+                "G", "Show/Hide Control Panel Gui",
+                "H", "increase hue",
+                "shift+H", "decrease hue",
+                "S", "increase saturation",
+                "shift+S", "decrease saturation",
+                "V", "increase vibrance",
+                "shift+V", "decrease vibrance",
+                "M", "change color render mode",
+                "O", "saves screenshot of the screen",
+                "Q or ESCAPE", "quits/exits the program",
+                "C", "changes or disables crosshair",
+                "? or /", "show this help window",
+                nullptr, nullptr
+            };
+
+            ImGui::Begin( "Help", &gui_show_help_window );
+            ImGui::Text( "Key Bindings" );
+            ImGui::Text( " " );
+            ImGui::Separator();
+            cmd_t * hp = &cmds[0];
+
+            int lcolwidth = 137;
+
+            do {
+                cmd_t & c = *hp++;
+                if ( c.cmd ) {
+                    if ( *c.cmd ) {
+                        ImGui::Columns( 2, "key description", false );
+                        ImGui::SetColumnWidth( 0, lcolwidth );
+                        ImGui::Text( "(%s)", c.cmd );
+                        ImGui::NextColumn();
+                        ImGui::Text( "%s", c.desc );
+                        ImGui::NextColumn();
+                    } else {
+                        ImGui::Columns( 1 );
+                        ImGui::Separator();
+                        ImGui::NextColumn();
+                    }
+                } else {
+                    break;
+                }
+            } while ( 1 );
+
+            ImGui::Separator();
+            if (ImGui::Button("Close"))
+                gui_show_help_window = false;
             ImGui::End();
         }
 
