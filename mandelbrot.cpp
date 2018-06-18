@@ -137,6 +137,21 @@ int GetNextLowestFilenameNumber( const char * prefix ) {
 #endif
 
 
+static void ShowHelpMarker(const char* desc)
+{
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+        ImGui::TextUnformatted(desc);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+}
+
+
+
 struct BMPWriter {
 #pragma pack( push, 1 )
     struct bmpFileHeader {
@@ -245,65 +260,14 @@ public:
 class MandelbrotV2 : public Mandelbrot {
 public:
     enum filter_t {
-        FILTER_BLUE,
-        FILTER_GREEN,
-        FILTER_ORANGE,
-        FILTER_RED
+        FILTER_RGB,     // RGB == unchanged
+        FILTER_RBG,     // the rest are channel swapped
+        FILTER_GRB,
+        FILTER_GBR,
+        FILTER_BRG,
+        FILTER_BGR
     };
-    static const int TOTAL_FILTERS = 4;
-
-private:
-
-    double zoomStart;
-    double lookAt[2];
-    double zoom[2];
-
-    // originally 360.0, this number determines how quickly the colors shift from one end of the spectrum to the other.
-    double hue;
-    double saturation;
-    double vibrance; // blows out the gradient
-
-    filter_t colorFilter;
-    unsigned int ms_to_compute;
-
-public:
-
-    MandelbrotV2( int w, int h ) :
-            Mandelbrot( w, h ),
-            zoomStart( 3.14159265358979 ),
-            lookAt{ -0.5, 0.0 },
-            hue( 150.0 ),
-            saturation( 1.0 ),
-            vibrance( 14.0 ),
-            colorFilter( FILTER_BLUE ),
-            ms_to_compute( 0 )
-    {
-        zoom[0] = zoomStart;
-        zoom[1] = zoomStart;
-    }
-
-    void SetDimensions( int w, int h ) {
-        width = w;
-        height = h;
-    }
-
-    void ResetValues() {
-        lookAt[ 0 ] = -0.5;
-        lookAt[ 1 ] = 0.0;
-        zoom[ 0 ] = zoomStart;
-        zoom[ 1 ] = zoomStart;
-        hue = 150.0;
-        saturation = 1.0;
-        vibrance = 14.0;
-        colorFilter = FILTER_BLUE;
-    }
-
-    void ResetLocation() {
-        lookAt[ 0 ] = -0.5;
-        lookAt[ 1 ] = 0.0;
-        zoom[ 0 ] = zoomStart;
-        zoom[ 1 ] = zoomStart;
-    }
+    static const int TOTAL_COLOR_FILTERS = 6;
 
     struct IntDoubleDouble {
         int n;
@@ -325,6 +289,62 @@ public:
             r = r_; g = g_; b = b_;
         }
     };
+
+private:
+
+    double zoomStart;
+    double lookAt[2];
+    double zoom[2];
+
+    // originally 360.0, this number determines how quickly the colors shift from one end of the spectrum to the other.
+    double hue;
+    double saturation;
+    double vibrance; // blows out the gradient
+
+    filter_t colorFilter;
+    unsigned int ms_to_compute;
+
+    void (MandelbrotV2::*colorPicker)( int, int, double, double, color_t * );
+
+public:
+
+    MandelbrotV2( int w, int h ) :
+            Mandelbrot( w, h ),
+            zoomStart( 3.14159265358979 ),
+            lookAt{ -0.5, 0.0 },
+            hue( 150.0 ),
+            saturation( 1.0 ),
+            vibrance( 14.0 ),
+            colorFilter( FILTER_BGR ),
+            ms_to_compute( 0 ),
+            colorPicker( &MandelbrotV2::colorPicker_BGR )
+    {
+        zoom[0] = zoomStart;
+        zoom[1] = zoomStart;
+    }
+
+    void SetDimensions( int w, int h ) {
+        width = w;
+        height = h;
+    }
+
+    void ResetValues() {
+        lookAt[ 0 ] = -0.5;
+        lookAt[ 1 ] = 0.0;
+        zoom[ 0 ] = zoomStart;
+        zoom[ 1 ] = zoomStart;
+        hue = 150.0;
+        saturation = 1.0;
+        vibrance = 14.0;
+        colorFilter = FILTER_BGR;
+    }
+
+    void ResetLocation() {
+        lookAt[ 0 ] = -0.5;
+        lookAt[ 1 ] = 0.0;
+        zoom[ 0 ] = zoomStart;
+        zoom[ 1 ] = zoomStart;
+    }
 
     unsigned int GetComputeTime() { return ms_to_compute; }
 
@@ -602,53 +622,26 @@ public:
     color__->b = rgb_[2] > 255.0 ? 255 : rgb_[2];                                   \
 } while(0)
 
+#define SWAP_RED_AND_BLUE( color_ ) do {    \
+            double t_ = color_->r;          \
+            color_->r = color_->b;          \
+            color_->b = t_;                 \
+} while( 0 )
 
-    void colorPicker_green( int max, int steps, double Tr, double Ti, color_t * color ) {
-        if ( max == steps ) { // converged?
-            color->set(0,0,0);
-            return;
-        }
+#define SWAP_GREEN_AND_BLUE( color_ ) do {  \
+            double t_ = color_->g;          \
+            color_->g = color_->b;          \
+            color_->b = t_;                 \
+} while( 0 )
 
-        double v = SMOOTH_COLOR( steps, Tr, Ti );
+#define SWAP_RED_AND_GREEN( color_ ) do {   \
+            double t_ = color_->r;          \
+            color_->r = color_->g;          \
+            color_->g = t_;                 \
+} while( 0 )
 
-        HSV_TO_RGB( (hue * v / ((double)max)), saturation, (vibrance * v / ((double)max)), color );
 
-        {
-            // swap red and green
-            double t = color->r;
-            color->r = color->g;
-            color->g = t;
-        }
-    }
-
-    void colorPicker_orange( int max, int steps, double Tr, double Ti, color_t * color ) {
-        if ( max == steps ) { // converged?
-            color->set(0,0,0);
-            return;
-        }
-
-        double v = SMOOTH_COLOR( steps, Tr, Ti );
-
-        HSV_TO_RGB( (hue * v / ((double)max)), saturation, (vibrance * v / ((double)max)), color );
-
-        {
-            // swap red and green
-            double t = color->r;
-            color->r = color->g;
-            color->g = t;
-        }
-
-        {
-            // swap green and blue
-            double t = color->g;
-            color->g = color->b;
-            color->b = t;
-        }
-
-        // wind up with RGB-->GBR
-    }
-
-    void colorPicker_red( int max, int steps, double Tr, double Ti, color_t * color ) {
+    void colorPicker_RGB( int max, int steps, double Tr, double Ti, color_t * color ) {
         if ( max == steps ) { // converged?
             color->set(0,0,0);
             return;
@@ -659,7 +652,7 @@ public:
         HSV_TO_RGB( (hue * v / ((double)max)), saturation, (vibrance * v / ((double)max)), color );
     }
 
-    void colorPicker_blue( int max, int steps, double Tr, double Ti, color_t * color ) {
+    void colorPicker_RBG( int max, int steps, double Tr, double Ti, color_t * color ) {
         if ( max == steps ) { // converged?
             color->set(0,0,0);
             return;
@@ -669,10 +662,70 @@ public:
 
         HSV_TO_RGB( (hue * v / ((double)max)), saturation, (vibrance * v / ((double)max)), color );
 
-        // swap red and blue
-        double t = color->r;
-        color->r = color->b;
-        color->b = t;
+        // R G B --> R B G
+        SWAP_GREEN_AND_BLUE( color );
+    }
+
+    void colorPicker_GRB( int max, int steps, double Tr, double Ti, color_t * color ) {
+        if ( max == steps ) { // converged?
+            color->set(0,0,0);
+            return;
+        }
+
+        double v = SMOOTH_COLOR( steps, Tr, Ti );
+
+        HSV_TO_RGB( (hue * v / ((double)max)), saturation, (vibrance * v / ((double)max)), color );
+
+        // R G B --> G R B
+        SWAP_RED_AND_GREEN( color );
+    }
+
+    void colorPicker_GBR( int max, int steps, double Tr, double Ti, color_t * color ) {
+        if ( max == steps ) { // converged?
+            color->set(0,0,0);
+            return;
+        }
+
+        double v = SMOOTH_COLOR( steps, Tr, Ti );
+
+        HSV_TO_RGB( (hue * v / ((double)max)), saturation, (vibrance * v / ((double)max)), color );
+
+        // R G B --> G R B
+        SWAP_RED_AND_GREEN( color );
+
+        // G R B --> G B R
+        SWAP_GREEN_AND_BLUE( color );
+    }
+
+    void colorPicker_BRG( int max, int steps, double Tr, double Ti, color_t * color ) {
+        if ( max == steps ) { // converged?
+            color->set(0,0,0);
+            return;
+        }
+
+        double v = SMOOTH_COLOR( steps, Tr, Ti );
+
+        HSV_TO_RGB( (hue * v / ((double)max)), saturation, (vibrance * v / ((double)max)), color );
+
+        // R G B --> G R B
+        SWAP_RED_AND_GREEN( color );
+
+        // G R B --> B R G
+        SWAP_RED_AND_BLUE( color );
+    }
+
+    void colorPicker_BGR( int max, int steps, double Tr, double Ti, color_t * color ) {
+        if ( max == steps ) { // converged?
+            color->set(0,0,0);
+            return;
+        }
+
+        double v = SMOOTH_COLOR( steps, Tr, Ti );
+
+        HSV_TO_RGB( (hue * v / ((double)max)), saturation, (vibrance * v / ((double)max)), color );
+
+        // R G B --> B G R
+        SWAP_RED_AND_BLUE( color );
     }
 
     void colorPicker_greyScale( int max, int steps, double Tr, double Ti, color_t * c ) {
@@ -690,38 +743,48 @@ public:
         c->set( v, v, v );
     }
 
-    color_t * PickColor( int max_iterations, const IntDoubleDouble & idd, color_t * c ) {
-        void (MandelbrotV2::*colorPicker)( int, int, double, double, color_t * );
-
-        switch( colorFilter ) {
-        case FILTER_RED:
-            colorPicker = &MandelbrotV2::colorPicker_red;
+    void SetColorFilter( filter_t newFilter ) {
+        if ( newFilter == colorFilter )
+            return;
+        colorFilter = newFilter;
+        switch( newFilter ) {
+        case FILTER_RGB:
+            colorPicker = &MandelbrotV2::colorPicker_RGB;
             break;
-        case FILTER_GREEN:
-            colorPicker = &MandelbrotV2::colorPicker_green;
+        case FILTER_RBG:
+            colorPicker = &MandelbrotV2::colorPicker_RBG;
             break;
-        case FILTER_ORANGE:
-            colorPicker = &MandelbrotV2::colorPicker_orange;
+        case FILTER_GRB:
+            colorPicker = &MandelbrotV2::colorPicker_GRB;
             break;
-        default:
-        case FILTER_BLUE:
-            colorPicker = &MandelbrotV2::colorPicker_blue;
+        case FILTER_GBR:
+            colorPicker = &MandelbrotV2::colorPicker_GBR;
+            break;
+        case FILTER_BRG:
+            colorPicker = &MandelbrotV2::colorPicker_BRG;
+            break;
+        case FILTER_BGR:
+            colorPicker = &MandelbrotV2::colorPicker_BGR;
             break;
         }
-
-        (*this.*colorPicker)( max_iterations, idd.n, idd.Tr, idd.Ti, c );
-
-        return c;
     }
 
-    void SetColor( filter_t f ) {
-        colorFilter = f;
+    filter_t GetColorFilter() {
+        return colorFilter;
+    }
+
+    void PrevFilter() {
+        int x = (int) colorFilter;
+        if ( --x < 0 )
+            x = TOTAL_COLOR_FILTERS - 1;
+        SetColorFilter( (filter_t) x );
     }
 
     void NextFilter() {
         int x = (int) colorFilter;
-        if ( ++x >= TOTAL_FILTERS ) x = 0;
-        colorFilter = (filter_t) x;
+        if ( ++x >= TOTAL_COLOR_FILTERS )
+            x = 0;
+        SetColorFilter( (filter_t) x );
     }
 
     virtual void Compute( unsigned char * pixel_buffer ) {
@@ -760,7 +823,7 @@ public:
                 struct IntDoubleDouble idd;
                 IterateEquation( Cr, Ci, escapeRadius, max_iterations, &idd );
                 color_t c;
-                PickColor( max_iterations, idd, &c );
+                (*this.*colorPicker)( max_iterations, idd.n, idd.Tr, idd.Ti, &c );
                 pixel_buffer[ offset++ ] = c[0];
                 pixel_buffer[ offset++ ] = c[1];
                 pixel_buffer[ offset++ ] = c[2];
@@ -1454,7 +1517,11 @@ public:
             break;
 
         case SDLK_m: {
-            mandelbrot.NextFilter();
+            if ( ( KMOD_SHIFT & keysym->mod ) || ( KMOD_LSHIFT & keysym->mod ) ) {
+                mandelbrot.PrevFilter();
+            } else {
+                mandelbrot.NextFilter();
+            }
             dataChanged = true;
             break;
         }
@@ -1650,25 +1717,7 @@ public:
             ImGui::Separator();
             ImGui::Text( " " );
 
-            {
-                double * hue       ;
-                double * saturation;
-                double * vibrance  ;
-
-                mandelbrot.GetHue( &hue );
-                mandelbrot.GetSaturation( &saturation );
-                mandelbrot.GetVibrance( &vibrance );
-
-                double hlow = 10.0, hhigh = 500.0;
-                double slow = 0.1 , shigh = 5.0;
-                double vlow = 1.0 , vhigh = 50.0;
-
-                ImGui::SliderScalar( "Hue", ImGuiDataType_Double, hue, &hlow, &hhigh, "%.3lf", 1.0f );
-                ImGui::SliderScalar( "Saturation", ImGuiDataType_Double, saturation, &slow, &shigh, "%.3lf", 1.0f );
-                ImGui::SliderScalar( "Vibrance", ImGuiDataType_Double, vibrance, &vlow, &vhigh, "%.3lf", 1.0f );
-                ImGui::Text( " " );
-            }
-
+            // static stats
             {
                 int lcol = 190;
 
@@ -1693,11 +1742,12 @@ public:
                 ImGui::Text( "%u.%u sec", mandelbrot.GetComputeTime() / 1000, ( mandelbrot.GetComputeTime() % 1000 ) / 100 );
                 ImGui::NextColumn();
 
+                ImGui::Columns(1);
             }
 
-            ImGui::Columns(1);
             ImGui::Text( " " );
 
+            // zoom and location
             {
                 ImGui::Text( "Fundamental Characteristics:" );
                 if ( ImGui::IsItemHovered() )
@@ -1713,10 +1763,10 @@ public:
                     ImGui::SetTooltip( "The center of the window location over the fractal" );
                 ImGui::NextColumn();
                 ImGui::SetColumnWidth( 1, ImGui::GetWindowWidth() * 0.36f );
-                ImGui::InputScalar( "x",  ImGuiDataType_Double, &la[0], NULL );
+                ImGui::InputScalar( "c.x",  ImGuiDataType_Double, &la[0], NULL );
                 ImGui::NextColumn();
                 ImGui::SetColumnWidth( 2, ImGui::GetWindowWidth() * 0.36f );
-                ImGui::InputScalar( "y",  ImGuiDataType_Double, &la[1], NULL );
+                ImGui::InputScalar( "c.y",  ImGuiDataType_Double, &la[1], NULL );
                 ImGui::NextColumn();
 
                 ImGui::Columns( 3, "zoom", false );
@@ -1732,39 +1782,81 @@ public:
                 }
                 ImGui::NextColumn();
                 ImGui::SetColumnWidth( 1, ImGui::GetWindowWidth() * 0.36f );
-                ImGui::InputScalar( "x",  ImGuiDataType_Double, &zoom[0], NULL );
+                ImGui::InputScalar( "z.x",  ImGuiDataType_Double, &zoom[0], NULL );
                 ImGui::NextColumn();
                 ImGui::SetColumnWidth( 2, ImGui::GetWindowWidth() * 0.36f );
-                ImGui::InputScalar( "y",  ImGuiDataType_Double, &zoom[1], NULL );
+                ImGui::InputScalar( "z.y",  ImGuiDataType_Double, &zoom[1], NULL );
                 ImGui::NextColumn();
+
+                ImGui::Columns( 1 );
             }
 
-            ImGui::Columns( 1 );
             ImGui::Text( " " );
-            ImGui::Checkbox( "Help Menu", &gui_show_help_window );
-            ImGui::SameLine();
-            ImGui::Checkbox( "ImGui Demo", &gui_show_demo_window );
+
+            // Color mode Combo dropdown
+            {
+                const char* items[] = { "RGB - red green blue", "RBG - red blue green", "GRB - green red blue", "GBR - green blue red", "BRG - blue red green", "BGR - blue green red" };
+                MandelbrotV2::filter_t cFilter = mandelbrot.GetColorFilter();
+                int item_current = (int) cFilter;
+                ImGui::Combo( "Color Mode", &item_current, items, IM_ARRAYSIZE(items) );
+                ImGui::SameLine(); ShowHelpMarker( "Pixels are calculated through various kinds of filters. Each filter places different emphasis on color groups which achieves vastly different effects." );
+                if ( item_current != (int) cFilter ) {
+                    mandelbrot.SetColorFilter( (MandelbrotV2::filter_t) item_current );
+                }
+            }
+
+            ImGui::Text( " " );
+
+            // HSV sliders
+            {
+                double * hue       ;
+                double * saturation;
+                double * vibrance  ;
+
+                mandelbrot.GetHue( &hue );
+                mandelbrot.GetSaturation( &saturation );
+                mandelbrot.GetVibrance( &vibrance );
+
+                double hlow = 10.0, hhigh = 500.0;
+                double slow = 0.1 , shigh = 5.0;
+                double vlow = 1.0 , vhigh = 50.0;
+
+                ImGui::SliderScalar( "Hue", ImGuiDataType_Double, hue, &hlow, &hhigh, "%.3lf", 1.0f );
+                ImGui::SliderScalar( "Saturation", ImGuiDataType_Double, saturation, &slow, &shigh, "%.3lf", 1.0f );
+                ImGui::SliderScalar( "Vibrance", ImGuiDataType_Double, vibrance, &vlow, &vhigh, "%.3lf", 1.0f );
+            }
+
+            ImGui::Text( " " );
+
+            // controls to open other windows
+            {
+                ImGui::Checkbox( "Help Menu", &gui_show_help_window );
+                ImGui::SameLine();
+                ImGui::Checkbox( "ImGui Demo", &gui_show_demo_window );
+            }
 
             //-----------------
             ImGui::Text( " " );
             ImGui::Separator();
             ImGui::Text( " " );
 
-            if ( ImGui::Button( "Draw" ) )
-                gui_redraw_requested = true;
-            ImGui::SameLine();
-            if ( ImGui::Button( "Screenshot" ) )
-                gui_screenshot_requested = true;
-            ImGui::SameLine();
-            if ( ImGui::Button( "Re-Center" ) )
-                gui_reset_location_requested = true;
+            // buttons
+            {
+                if ( ImGui::Button( "Re-Center" ) )
+                    gui_reset_location_requested = true;
+                ImGui::SameLine();
+                if ( ImGui::Button( "Reset All" ) )
+                    gui_reset_all_requested = true;
 
-            if ( ImGui::Button( "Reset All" ) )
-                gui_reset_all_requested = true;
-            ImGui::SameLine();
-            if ( ImGui::Button( "Quit" ) )
-                gui_quit_requested = true;
+                if ( ImGui::Button( "Screenshot" ) )
+                    gui_screenshot_requested = true;
+                ImGui::SameLine();
+                if ( ImGui::Button( "\n   Draw   \n   " ) )
+                    gui_redraw_requested = true;
 
+                if ( ImGui::Button( "Quit" ) )
+                    gui_quit_requested = true;
+            }
 
             ImGui::End();
         } // control panel
@@ -1781,19 +1873,20 @@ public:
                 "", "",
                 "Left-click", "moves center of view",
                 "Mouse-wheel", "Zooms in or out",
+                "G", "show/hide Control Panel Gui",
+                "? or /", "show/hide this help window",
                 "F", "toggle fullscreen",
-                "G", "Show/Hide Control Panel Gui",
                 "H", "increase hue",
                 "shift+H", "decrease hue",
                 "S", "increase saturation",
                 "shift+S", "decrease saturation",
                 "V", "increase vibrance",
                 "shift+V", "decrease vibrance",
-                "M", "change color render mode",
+                "M", "cycle color modes",
+                "shift+M", "cycle color modes backwards",
                 "O", "saves screenshot of the screen",
                 "Q or ESCAPE", "quits/exits the program",
                 "C", "changes or disables crosshair",
-                "? or /", "show this help window",
                 nullptr, nullptr
             };
 

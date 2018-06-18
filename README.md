@@ -11,16 +11,17 @@ There are a few simple key bindings:
 | --- | --- |
 | Left-click  | moves center of view to the clicked on point |
 | Mouse-wheel | Zooms in or out |
+| G           | show/hide Control Panel Gui |
+| ? or /      | show/hide Help Window |
 | F           | toggle fullscreen |
-| G           | Show/Hide Control Panel Gui |
 | H           | increase hue |
 | shift+H     | decrease hue |
 | S           | increase saturation |
 | shift+S     | decrease saturation |
 | V           | increase vibrance |
 | shift+V     | decrease vibrance |
-| M           | change color render mode |
+| M           | cycle through color filter modes |
+| shift+M     | cycle through color filter modes backwards |
 | O           | output a hardcopy of the screen (writes file to local directory) |
 | Q or ESCAPE | quits/exits the program |
 | C           | changes crosshair type (or disables it) |
-| ? or /      | show help window |
