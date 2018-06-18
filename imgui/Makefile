@@ -3,7 +3,7 @@ CC := gcc
 LIB_OUT := imgui.a
 CFLAGS := -Wall
 #CXXFLAGS := -Wall -fPIC
-CXXFLAGS := -Wall
+CXXFLAGS := -Wall -O3
 
 #C_OBJS := GL/gl3w.o
 #    imgui_impl_opengl3.o

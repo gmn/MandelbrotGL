@@ -43,6 +43,10 @@
 #define GL_VERSION_MAJOR 2
 #define GL_VERSION_MINOR 2
 
+#define DEFAULT_WINDOW_WIDTH 1280
+#define DEFAULT_WINDOW_HEIGHT 720
+
+
 const unsigned int filename_zeros = 5;
 
 static void usage( const char * exename ) {
@@ -276,6 +280,11 @@ public:
     {
         zoom[0] = zoomStart;
         zoom[1] = zoomStart;
+    }
+
+    void SetDimensions( int w, int h ) {
+        width = w;
+        height = h;
     }
 
     void ResetValues() {
@@ -847,9 +856,6 @@ private:
         int dummy;
     } desktopInfo;
 
-    bool useNativeWindow; // use the current desktop resolution for fullscreen;
-                          // if false, fullscreen resolution is same as window resolution: widthxheight
-
     bool gui_show_control_panel;
     bool gui_show_help_window;
     bool gui_show_demo_window;
@@ -859,9 +865,11 @@ private:
     bool gui_reset_location_requested;
     bool gui_screenshot_requested;
 
+    bool useDesktopResolution;
+
 public:
 
-    explicit Application( int width_, int height_, bool fullscreen_ =false, bool useNativeWindow_ =true ) :
+    explicit Application( int width_, int height_, bool fullscreen_ =false, bool useDesktopResolution_ =true ) :
             bytesPerPixel( 3 ),
             mainWindow( nullptr ),
             screenTextureBuffer( nullptr ),
@@ -884,9 +892,11 @@ public:
             gui_redraw_requested( false ),
             gui_reset_all_requested( false ),
             gui_reset_location_requested( false ),
-            gui_screenshot_requested( false )
+            gui_screenshot_requested( false ),
+            useDesktopResolution( useDesktopResolution_ )
     {
         windowTitle = "OpenGL Mandelbrot Viewer";
+
         windowWidth = width_;
         windowHeight = height_;
         if ( fullscreen_ ) {
@@ -937,12 +947,6 @@ public:
         SDL_GL_SetAttribute( SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG );
         SDL_GL_SetAttribute( SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE );
 #endif
-
-        SDL_DisplayMode current;
-        SDL_GetCurrentDisplayMode(0, &current);
-        desktopInfo.width = current.w;
-        desktopInfo.height = current.h;
-        desktopInfo.refreshRate = current.refresh_rate;
 
         return true;
     }
@@ -997,10 +1001,10 @@ public:
     static void PrintGLAttributes()
     {
         int value = 0;
-        SDL_GL_GetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, &value);
-        std::cout << "SDL_GL_CONTEXT_MAJOR_VERSION : " << value << std::endl;
+        SDL_GL_GetAttribute( SDL_GL_CONTEXT_MAJOR_VERSION, &value );
+        std::cout << "SDL_GL_CONTEXT_MAJOR_VERSION: " << value << std::endl;
 
-        SDL_GL_GetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, &value);
+        SDL_GL_GetAttribute( SDL_GL_CONTEXT_MINOR_VERSION, &value );
         std::cout << "SDL_GL_CONTEXT_MINOR_VERSION: " << value << std::endl;
     }
 
@@ -1032,12 +1036,34 @@ public:
         }
 
         // do before window init
-        SetOpenGLAttributes(); //// FIXME - BUG!! - turn this off and Mandelbrot displays, ON and imgui displays
+        SetOpenGLAttributes();
+
+        // desktop display mode before running this app
+        SDL_DisplayMode current;
+        SDL_GetCurrentDisplayMode( 0, &current );
+        desktopInfo.width = current.w;
+        desktopInfo.height = current.h;
+        desktopInfo.refreshRate = current.refresh_rate;
+
+        // prefer the current desktop resolution for fullscreen if user didn't override it
+        if ( fullscreen_flag && useDesktopResolution ) {
+            windowWidth = desktopInfo.width;
+            windowHeight = desktopInfo.height;
+            currentMouseLocation[ 0 ] = desktopInfo.width / 2;
+            currentMouseLocation[ 1 ] = desktopInfo.height / 2;
+            mandelbrot.SetDimensions( desktopInfo.width, desktopInfo.height );
+        }
+
+        // create application
+        if ( fullscreen_flag )
+            printf( "Going fullscreen @ %d x %d.\n", windowWidth, windowHeight );
+        else
+            printf( "Creating %d x %d window.\n", windowWidth, windowHeight );
 
         // Create our window centered at 512x512 resolution
         mainWindow = SDL_CreateWindow( windowTitle.c_str(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, windowWidth, windowHeight, SDL_WINDOW_OPENGL /*|SDL_WINDOW_RESIZABLE*/ );
 
-        // Check that everything worked out okay
+        // Do we have a main window?
         if ( !mainWindow ) {
             std::cout << "Unable to create window\n";
             CheckSDLError(__LINE__); // FIXME I hate this naive function
@@ -1673,22 +1699,47 @@ public:
             ImGui::Text( " " );
 
             {
+                ImGui::Text( "Fundamental Characteristics:" );
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip("These 4 numbers are all you need to get back to this location.");
+
                 double * la = mandelbrot.GetLookAt();
                 double * zoom = mandelbrot.GetZoom();
 
-                ImGui::Text( "Virtual Center Location: " );
-                //ImGui::SameLine();
-                ImGui::InputScalar( "center x",  ImGuiDataType_Double, &la[0], NULL );
-                //ImGui::SameLine();
-                ImGui::InputScalar( "center y",  ImGuiDataType_Double, &la[1], NULL );
+                ImGui::Columns( 3, "center", false );
+                ImGui::SetColumnWidth( 0, ImGui::GetWindowWidth() * 0.21f );
+                ImGui::Text( "CENTER: " );
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip( "The center of the window location over the fractal" );
+                ImGui::NextColumn();
+                ImGui::SetColumnWidth( 1, ImGui::GetWindowWidth() * 0.36f );
+                ImGui::InputScalar( "x",  ImGuiDataType_Double, &la[0], NULL );
+                ImGui::NextColumn();
+                ImGui::SetColumnWidth( 2, ImGui::GetWindowWidth() * 0.36f );
+                ImGui::InputScalar( "y",  ImGuiDataType_Double, &la[1], NULL );
+                ImGui::NextColumn();
 
-                ImGui::Text( "Zoom: " );
-                //ImGui::SameLine();
-                ImGui::InputScalar( "zoom x",  ImGuiDataType_Double, &zoom[0], NULL );
-                //ImGui::SameLine();
-                ImGui::InputScalar( "zoom y",  ImGuiDataType_Double, &zoom[1], NULL );
+                ImGui::Columns( 3, "zoom", false );
+                ImGui::SetColumnWidth( 0, ImGui::GetWindowWidth() * 0.21f );
+                ImGui::Text( "ZOOM: " );
+                if ( ImGui::IsItemHovered() ) {
+                    ImGui::BeginTooltip();
+                    ImGui::Text( "The degree of magnification in the X and Y axises." );
+                    ImGui::Text( "Another way to think about Zoom is that the number signifies" );
+                    ImGui::Text( "half the measurement from one side of the viewport to the other" );
+                    ImGui::Text( "of a single axis. Smaller viewport equals larger magnification." );
+                    ImGui::EndTooltip();
+                }
+                ImGui::NextColumn();
+                ImGui::SetColumnWidth( 1, ImGui::GetWindowWidth() * 0.36f );
+                ImGui::InputScalar( "x",  ImGuiDataType_Double, &zoom[0], NULL );
+                ImGui::NextColumn();
+                ImGui::SetColumnWidth( 2, ImGui::GetWindowWidth() * 0.36f );
+                ImGui::InputScalar( "y",  ImGuiDataType_Double, &zoom[1], NULL );
+                ImGui::NextColumn();
             }
 
+            ImGui::Columns( 1 );
             ImGui::Text( " " );
             ImGui::Checkbox( "Help Menu", &gui_show_help_window );
             ImGui::SameLine();
@@ -1957,11 +2008,8 @@ static int ParseArguments( int argc, char ** argv, const char * exename, int * w
 
 int main( int argc, char ** argv )
 {
-#define DEFAULT_WIDTH 1280
-#define DEFAULT_HEIGHT 720
-
-    int width = DEFAULT_WIDTH;
-    int height = DEFAULT_HEIGHT;
+    int width = DEFAULT_WINDOW_WIDTH;
+    int height = DEFAULT_WINDOW_HEIGHT;
 
     char * p = strrchr( argv[0], '/' );
     const char * exename = p ? p + 1 : argv[0];
@@ -1974,24 +2022,22 @@ int main( int argc, char ** argv )
     if ( res != 0 )
         return res;
 
-    bool userSpecifiedResolution = ( width != DEFAULT_WIDTH ) || ( height != DEFAULT_HEIGHT );
-
-    // create application
-    if ( fullscreen )
-        printf( "Going fullscreen @: %d x %d.  (use '%s -xy <width>x<height>' to set custom resolution, -h for full help)\n", width, height, exename );
-    else
-        printf( "Creating window %d x %d.  (use '%s -xy <width>x<height>' to set custom resolution, -h for full help)\n", width, height, exename );
-
+    bool userHasSpecifiedResolution = ( width != DEFAULT_WINDOW_WIDTH ) ||
+                                      ( height != DEFAULT_WINDOW_HEIGHT );
 
     // FIXME: should be singleton
     //  Application & app = Application::GetApplication();
 
     // declare our app
-    Application app( width, height, fullscreen, !userSpecifiedResolution );
+    Application app( width, height, fullscreen, !userHasSpecifiedResolution );
 
     // initialize
     if (!app.Init())
         return -1;
+
+    if ( !userHasSpecifiedResolution ) {
+        printf( "(hint: use '%s -xy <width>x<height>' to set custom resolution, -h for full help)\n", exename );
+    }
 
     // display info
     app.PrintGLAttributes();
