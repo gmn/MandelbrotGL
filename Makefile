@@ -44,5 +44,4 @@ clean:
 
 distclean: clean
 	@cd imgui; make clean;
-	@if [ -e imgui.ini ]; then echo rm imgui.ini; rm imgui.ini; fi
 
