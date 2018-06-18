@@ -1477,6 +1477,7 @@ public:
             SDL_SetWindowFullscreen( mainWindow, fullscreen_flag );
             break;
         case SDLK_SPACE:
+		case SDLK_RETURN:
             dataChanged = true;
             break;
         case SDLK_h:
@@ -1795,7 +1796,7 @@ public:
 
             // Color mode Combo dropdown
             {
-                const char* items[] = { "RGB - red green blue", "RBG - red blue green", "GRB - green red blue", "GBR - green blue red", "BRG - blue red green", "BGR - blue green red" };
+                const char* items[] = { "1. RGB - red green blue", "2. RBG - red blue green", "3. GRB - green red blue", "4. GBR - green blue red", "5. BRG - blue red green", "6. BGR - blue green red" };
                 MandelbrotV2::filter_t cFilter = mandelbrot.GetColorFilter();
                 int item_current = (int) cFilter;
                 ImGui::Combo( "Color Mode", &item_current, items, IM_ARRAYSIZE(items) );
