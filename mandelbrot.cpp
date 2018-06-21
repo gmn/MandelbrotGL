@@ -1819,7 +1819,7 @@ public:
                 mandelbrot.GetVibrance( &vibrance );
 
                 double hlow = 10.0, hhigh = 1000.0;
-                double slow = 0.1 , shigh = 2.0;
+                double slow = 0.1 , shigh = 1.0;
                 double vlow = 1.0 , vhigh = 50.0;
 
                 ImGui::SliderScalar( "Hue", ImGuiDataType_Double, hue, &hlow, &hhigh, "%.3lf", 1.0f );
