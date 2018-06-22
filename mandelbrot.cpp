@@ -929,6 +929,7 @@ private:
     bool gui_screenshot_requested;
 
     bool useDesktopResolution;
+    bool gl_filter_on;
 
 public:
 
@@ -956,7 +957,8 @@ public:
             gui_reset_all_requested( false ),
             gui_reset_location_requested( false ),
             gui_screenshot_requested( false ),
-            useDesktopResolution( useDesktopResolution_ )
+            useDesktopResolution( useDesktopResolution_ ),
+            gl_filter_on( true )
     {
         windowTitle = "OpenGL Mandelbrot Viewer";
 
@@ -1151,7 +1153,7 @@ public:
 
         screenTextureBuffer = (unsigned char *) calloc( (unsigned int)( windowWidth * windowHeight * bytesPerPixel ) + 1u, 1u );
 
-        InitScreenTexture( &textureHandle, &arrayHandle, windowWidth, windowHeight );
+        InitScreenTexture( &textureHandle, &arrayHandle, windowWidth, windowHeight, GL_NEAREST );
 
         SDL_ShowCursor(1);
 
@@ -1174,7 +1176,7 @@ public:
         mandelbrot.GetRange( xRange, yRange );
     }
 
-    static void InitScreenTexture( GLuint * tex_obj, GLuint * array_handle, int width, int height ) {
+    static void InitScreenTexture( GLuint * tex_obj, GLuint * array_handle, int width, int height, GLenum filterMode ) {
         glEnable( GL_TEXTURE_2D );
 
         //
@@ -1191,8 +1193,9 @@ public:
         glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, 0 );
 
         // GL_NEAREST displays the actual computed pixel from texture data rather than an interpolation
-        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
-        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
+        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filterMode );
+        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterMode );
+
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER );
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER );
 
@@ -1258,6 +1261,11 @@ public:
 
         //load it into the graphics hardware:
         glBindTexture( GL_TEXTURE_2D, texNum );
+
+        //
+        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_on ? GL_LINEAR : GL_NEAREST );
+        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_on ? GL_LINEAR : GL_NEAREST );
+
         glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, windowWidth, windowHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, bytes );
 
         // map texels onto display port
@@ -1541,6 +1549,9 @@ public:
             gui_show_help_window = !gui_show_help_window;
             break;
 
+        case SDLK_w:
+            gl_filter_on = !gl_filter_on;
+            break;
 
         default:
             break;
@@ -1834,6 +1845,8 @@ public:
                 ImGui::Checkbox( "Help Menu", &gui_show_help_window );
                 ImGui::SameLine();
                 ImGui::Checkbox( "ImGui Demo", &gui_show_demo_window );
+                ImGui::SameLine();
+                ImGui::Checkbox( "OpenGL Filtering", &gl_filter_on );
             }
 
             //-----------------
@@ -1888,6 +1901,7 @@ public:
                 "O", "saves screenshot of the screen",
                 "Q or ESCAPE", "quits/exits the program",
                 "C", "changes or disables crosshair",
+                "W", "Toggle OpenGl Filtering",
                 nullptr, nullptr
             };
 
