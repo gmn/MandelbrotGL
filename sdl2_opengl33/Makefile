@@ -2,7 +2,7 @@
 EXE := mandelbrot
 CFLAGS_DEBUG := -g -Wall -std=c++11
 CFLAGS_OPT := -Wall -std=c++11 -O3
-INCLUDES := -I.. -I../imgui
+INCLUDES := -I.. -I../imgui -I/usr/incude/SDL2 -I/usr/local/include/SDL2
 LIBS :=
 LINK := -lGL -lGLEW -lSDL2 -ldl
 #LINK := -lGL -lSDL2 -ldl

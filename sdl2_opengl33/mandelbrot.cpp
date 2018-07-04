@@ -26,7 +26,8 @@
 //#include <GL/gl.h>
 
 // SDL2 Headers
-#include <SDL2/SDL.h>
+//#include <SDL2/SDL.h>
+#include <SDL.h>
 
 // stb headers
 #define STB_TRUETYPE_IMPLEMENTATION  // force following include to generate implementation
@@ -904,8 +905,8 @@ private:
     MandelbrotV2 mandelbrot;
 
     // STB font buffers
-    stbtt_bakedchar * cdata;
-    GLuint * ftex;
+    stbtt_bakedchar * cdata = nullptr;
+    GLuint * ftex = nullptr;
     int font_scale;
     float font_px;
     char * message_p;
@@ -934,6 +935,10 @@ private:
     bool useDesktopResolution;
     bool gl_filter_on;
     GLuint m_shaderProgram;
+
+    int m_AttribTexColors;
+    int m_AttribPosition ;
+    int m_AttribTexCoord ;
 
 public:
 
@@ -1055,6 +1060,7 @@ public:
         //glDisable( GL_BLEND ); // blend incoming colors with colors in the buffers
         glEnable( GL_BLEND ); // blend incoming colors with colors in the buffers
         glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+        glBlendEquation( GL_FUNC_ADD );
 
         // cull backfaces
         //glEnable(GL_CULL_FACE);
@@ -1187,24 +1193,27 @@ public:
     }
 
     static void InitScreenTexture( GLuint * tex_obj, GLuint * array_handle, int width, int height, GLenum filterMode ) {
-        glEnable( GL_TEXTURE_2D );
 
         //
         // TEXTURE
         //
+        glEnable( GL_TEXTURE_2D );
 
         // ask API state-machine to generate texture object handle
         glGenTextures( 1, tex_obj );
-
-        // set the generated id as a texture type
-        glBindTexture( GL_TEXTURE_2D, *tex_obj );
 
         // all subsequent commands affect this texture unit;
         // the active texture unit is inferred from this selector(enum)
         glActiveTexture( GL_TEXTURE0 );
 
+        // set the generated id as a texture type
+        glBindTexture( GL_TEXTURE_2D, *tex_obj );
+
         // verify it works
         assert( glIsTexture( *tex_obj ) );
+
+        // ?
+        glPixelStorei( GL_UNPACK_ALIGNMENT, 1 );
 
         // For immutable textures in opengl-3.3, use:
         //  glTexStorage2D()
@@ -1220,8 +1229,8 @@ public:
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER );
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER );
 
-        //glBindTexture( GL_TEXTURE_2D, 0 );
-        //glDisable( GL_TEXTURE_2D );
+        glBindTexture( GL_TEXTURE_2D, 0 );
+        glDisable( GL_TEXTURE_2D );
 
 #if 0
     for opengl >= 3.2
@@ -1291,10 +1300,36 @@ public:
             "#version 150\n"
             "// It was expressed that some drivers required this next line to function properly\n"
             "precision highp float;\n"
-            "out vec4 out_frag_color;\n"
+            "out vec4 out_fragColor;\n"
             "in  vec4 varying_color;\n"
-            "void main(void) {\n"
-            "    out_frag_color = varying_color;\n"
+            "void main(void)\n"
+            "{\n"
+            "    out_fragColor = varying_color;\n"
+            "}\n";
+
+            //"in vec4 Color;\n"
+            //"smooth out vec2 inter_texCoord;\n"
+
+        const char * tex_vert_shader =
+            "#version 150\n"
+            "in vec4 in_position;\n"
+            "in vec2 in_texCoord;\n"
+            "out vec2 inter_texCoord;\n"
+            "void main(void)\n"
+            "{\n"
+            "   inter_texCoord = in_texCoord;\n"
+            "   gl_Position = in_position;\n"
+            "}\n";
+
+        const char * tex_frag_shader =
+            "#version 150\n"
+            "precision highp float;\n"
+            "out vec4 out_fragColor;\n"
+            "uniform sampler2D texColors;\n"
+            "in vec2 inter_texCoord;\n"
+            "void main(void)\n"
+            "{\n"
+            "   out_fragColor = texture( texColors, inter_texCoord );\n"
             "}\n";
 
         // create the shader units
@@ -1302,8 +1337,10 @@ public:
         GLuint fragShader = glCreateShader( GL_FRAGMENT_SHADER );
 
         // associate each shader handle with its source code
-        glShaderSource( vertShader, 1, (const GLchar **)&vertex_shader, 0 );
-        glShaderSource( fragShader, 1, (const GLchar **)&fragment_shader, 0 );
+        glShaderSource( vertShader, 1, (const GLchar **)&tex_vert_shader, 0 );
+        glShaderSource( fragShader, 1, (const GLchar **)&tex_frag_shader, 0 );
+        //glShaderSource( vertShader, 1, (const GLchar **)&vertex_shader, 0 );
+        //glShaderSource( fragShader, 1, (const GLchar **)&fragment_shader, 0 );
 
         // compile and check compilation
         GLint status_return = 0;
@@ -1328,8 +1365,12 @@ public:
         glAttachShader( shaderProgram, vertShader );
         glAttachShader( shaderProgram, fragShader );
 
-        glBindAttribLocation( shaderProgram, 0, "in_vertex" );
-        glBindAttribLocation( shaderProgram, 1, "in_color" );
+        glBindAttribLocation( shaderProgram, 0, "in_position" );
+        glBindAttribLocation( shaderProgram, 1, "in_texCoord" );
+/*
+        //glBindAttribLocation( shaderProgram, 0, "in_vertex" );
+        //glBindAttribLocation( shaderProgram, 1, "in_color" );
+*/
 
         glLinkProgram( shaderProgram );
         glGetProgramiv( shaderProgram, GL_LINK_STATUS, &status_return );
@@ -1338,19 +1379,27 @@ public:
             return false;
         }
 
+        m_AttribTexColors = glGetUniformLocation( shaderProgram, "texColors" );
+        m_AttribPosition  = glGetAttribLocation( shaderProgram, "in_position" );
+        m_AttribTexCoord  = glGetAttribLocation( shaderProgram, "in_texCoord" );
+
         *programID = shaderProgram;
         return true;
-    };
+    }
 
     void DrawScreenTexture( GLuint texNum, unsigned char * bytes )
     {
         glEnable( GL_TEXTURE_2D );
 
+        //
+        glActiveTexture( GL_TEXTURE0 );
+
         //load it into the graphics hardware:
         glBindTexture( GL_TEXTURE_2D, texNum );
 
-        // Bind also makes that texture unit active. for something so simple we prob
-        glActiveTexture( GL_TEXTURE0 );
+        glUniform1i( m_AttribTexColors, 0 );
+        if ( glBindSampler )
+            glBindSampler( 0, 0 );
 
         //
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_on ? GL_LINEAR : GL_NEAREST );
@@ -1366,10 +1415,10 @@ public:
         // specify texture vertices & and tex-coords through VBO
         static const GLfloat quad_data[] = {
             // verteces
-            0.0f, 0.0f, 0.0f, 1.0f,
-            1.0f, 0.0f, 0.0f, 1.0f,
-            1.0f, 1.0f, 0.0f, 1.0f,
-            0.0f, 1.0f, 0.0f, 1.0f,
+            -1.0f, -1.0f, 0.0f, 1.0f,
+            +1.0f, -1.0f, 0.0f, 1.0f,
+            +1.0f, +1.0f, 0.0f, 1.0f,
+            -1.0f, +1.0f, 0.0f, 1.0f,
             // tex coords
             0.0f, 0.0f,
             1.0f, 0.0f,
@@ -1396,9 +1445,9 @@ public:
                                0,               // stride
                                (GLvoid*)0 );
 
-        glEnableVertexAttribArray( 0 );
+        glEnableVertexAttribArray( m_AttribPosition );
         glVertexAttribPointer( 1, 2, GL_FLOAT, GL_FALSE, 0, (GLvoid*)( 16 * sizeof(GLfloat) ) );
-        glEnableVertexAttribArray( 1 );
+        glEnableVertexAttribArray( m_AttribTexCoord );
 
         glDrawArrays( GL_TRIANGLE_FAN, 0, 4 );
 
@@ -1780,8 +1829,10 @@ public:
     }
 
     void my_stbtt_cleanup() {
-        free( cdata );
-        delete[] ftex;
+        if ( cdata )
+            free( cdata );
+        if ( ftex )
+            delete[] ftex;
     }
 
     void my_stbtt_print(float x, float y, char *text )
@@ -2177,6 +2228,8 @@ public:
         ImGui_ImplSDL2_Shutdown();
         ImGui::DestroyContext();
 
+        //glDeleteShader(
+
         // Delete our OpengL context
         SDL_GL_DeleteContext( mainGLContext );
 
@@ -2263,7 +2316,7 @@ int main( int argc, char ** argv )
     Application app( width, height, fullscreen, !userHasSpecifiedResolution );
 
     // initialize
-    if (!app.Init())
+    if ( !app.Init() )
         return -1;
 
     // print usage hint
