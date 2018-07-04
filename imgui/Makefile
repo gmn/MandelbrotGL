@@ -6,7 +6,6 @@ CFLAGS := -Wall
 CXXFLAGS := -Wall -O3
 
 #C_OBJS := GL/gl3w.o
-#    imgui_impl_opengl3.o
 C_OBJS :=
 
 CPP_OBJS := \
@@ -14,6 +13,7 @@ CPP_OBJS := \
     imgui_demo.o            \
     imgui_draw.o            \
     imgui_impl_opengl2.o    \
+    imgui_impl_opengl3.o    \
     imgui_impl_sdl.o
 
 INCLUDES :=  -I .
