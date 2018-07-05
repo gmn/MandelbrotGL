@@ -1037,10 +1037,24 @@ public:
         v[15] = 1.0f;
     }
 
+    // a = b * c
+    void Mult16( float * a, float * b, float * c ) {
+
+    }
+
+    void GL_OrthoScreen( GLfloat * v, GLfloat w, GLfloat h ) {
+        GL_MakeIdentityMatrix44( v );
+        v[0] = 2.0f/w;
+        v[5] = 2.0f/h;
+
+        v[12] = -1.0f;
+        v[13] = -1.0f;
+    }
+
     void PrintMat44( float * v ) {
         for ( int i = 0 ; i < 16; i+=4 ) {
             for ( int j = 0; j < 4; j++ ) {
-                printf( "%.2f ", v[i+j] );
+                printf( "%.06f ", v[i+j] );
             }
             printf( "\n" );
         }
@@ -1058,14 +1072,12 @@ public:
         const GLfloat ortho_projection[4*4] =
         {
             2.0f/(R-L),   0.0f,         0.0f,   0.0f,
-            0.0f,         2.0f/(T-B),   0.0f,   0.0f,
-            0.0f,         0.0f,        -1.0f,   0.0f,
-            (R+L)/(L-R),  (T+B)/(B-T),  0.0f,   1.0f,
+            0.0f,         2.0f/(B-T),   0.0f,   0.0f,
+            0.0f,         0.0f,         1.0f,   0.0f,
+            (L+R)/(L-R),  (T+B)/(T-B),  0.0f,   1.0f,
         };
 
         memcpy( m_OrthoProjection, ortho_projection, sizeof(GLfloat) * 16 );
-        m_ProjectionMatrix = glGetUniformLocation( m_shaderColor, "ProjMtx" );
-        glUniformMatrix4fv( m_ProjectionMatrix, 1, GL_FALSE, &m_OrthoProjection[0] );
     }
 
     static int GL_InitState( void )
@@ -1402,12 +1414,14 @@ public:
         if ( glBindSampler )
             glBindSampler( 0, 0 );
 
-        //GL_ResetOrthographicProjection( windowWidth, windowHeight );
-        GLfloat mat[16];
-        GL_MakeIdentityMatrix44( mat );
-        //PrintMat44( mat );
+        GL_ResetOrthographicProjection( windowWidth, windowHeight );
+        //GLfloat mat[16];
+        //GL_OrthoScreen( mat, (GLfloat)windowWidth, (GLfloat)windowHeight );
+        //static int count;
+        //while ( count++ < 4 )
+        //    PrintMat44( mat );
         GLuint projmtx = glGetUniformLocation( m_shaderTexture, "ProjMtx" );
-        glUniformMatrix4fv( projmtx, 1, GL_FALSE, mat );
+        glUniformMatrix4fv( projmtx, 1, GL_FALSE, m_OrthoProjection );
 
         // tex parms
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_on ? GL_LINEAR : GL_NEAREST );
@@ -1420,21 +1434,23 @@ public:
                          windowWidth, windowHeight,
                          GL_RGB, GL_UNSIGNED_BYTE, bytes );
 
-/*
-            0.0f,                   0.0f,                   0.0f, 1.0f,
-            (GLfloat)windowWidth,   0.0f,                   0.0f, 1.0f,
-            (GLfloat)windowWidth,   (GLfloat)windowHeight,  0.0f, 1.0f,
-            0.0f,                   (GLfloat)windowHeight,  0.0f, 1.0f,
-*/
+        /*
+        // screen coords for unmodified vertex pipeline
+            -1.0f, -1.0f, 0.0f, 1.0f,
+            +1.0f, -1.0f, 0.0f, 1.0f,
+            +1.0f, +1.0f, 0.0f, 1.0f,
+            -1.0f, +1.0f, 0.0f, 1.0f,
+        */
 
         // specify texture vertices & and tex-coords through VBO
         // draw both vertex and tex-coord counter clockwise
         const GLfloat quad_data[] = {
             // vertices
-            -1.0f, -1.0f, 0.0f, 1.0f,
-            +1.0f, -1.0f, 0.0f, 1.0f,
-            +1.0f, +1.0f, 0.0f, 1.0f,
-            -1.0f, +1.0f, 0.0f, 1.0f,
+            0.0f,                   0.0f,                   0.0f, 1.0f,
+            (GLfloat)windowWidth,   0.0f,                   0.0f, 1.0f,
+            (GLfloat)windowWidth,   (GLfloat)windowHeight,  0.0f, 1.0f,
+            0.0f,                   (GLfloat)windowHeight,  0.0f, 1.0f,
+
             // tex coords
             0.0f, 0.0f,
             1.0f, 0.0f,
