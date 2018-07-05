@@ -948,6 +948,8 @@ private:
     int m_AttribTexCoord ;
     int m_AttribInVertex ;
     int m_AttribInColor  ;
+    int m_ProjectionMatrix, m_ProjectionMatrix2;
+    GLfloat m_OrthoProjection[ 16 ];
 
 public:
 
@@ -1027,23 +1029,26 @@ public:
         return true;
     }
 
-    static void GL_ResetOrthographicProjection( int width, int height )
+    void GL_ResetOrthographicProjection( int width, int height )
     {
-        if ( height == 0 )
-            height = 1;
+        glViewport( 0, 0, ( GLsizei )width, ( GLsizei )height );
 
-        glViewport( 0, 0, ( GLint )width, ( GLint )height );
+        float L = 0.0f;
+        float R = 0.0f + (GLfloat)width;
+        float T = 0.0f;
+        float B = 0.0f + (GLfloat)height;
+        const GLfloat ortho_projection[4*4] =
+        {
+            2.0f/(R-L),   0.0f,         0.0f,   0.0f,
+            0.0f,         2.0f/(T-B),   0.0f,   0.0f,
+            0.0f,         0.0f,        -1.0f,   0.0f,
+            (R+L)/(L-R),  (T+B)/(B-T),  0.0f,   1.0f,
+        };
 
-        //
-        glMatrixMode( GL_PROJECTION );
-        glLoadIdentity( );
-        glOrtho( 0, width, 0, height, -1, 1 );
+        memcpy( m_OrthoProjection, ortho_projection, sizeof(GLfloat) * 16 );
 
-        //
-        glMatrixMode( GL_MODELVIEW );
-        glLoadIdentity ();
-        glRasterPos3i( 0, 0, 0 );
-        glTranslatef ( 0.375f, 0.375f, 0.f );
+        glUniformMatrix4fv( m_ProjectionMatrix, 1, GL_FALSE, &m_OrthoProjection[0] );
+        glUniformMatrix4fv( m_ProjectionMatrix2, 1, GL_FALSE, &m_OrthoProjection[0] );
     }
 
     static int GL_InitState( void )
@@ -1176,7 +1181,6 @@ public:
 
         SDL_ShowCursor(1);
 
-        // FIXME: must redo for >= gl3.1
         GL_ResetOrthographicProjection( windowWidth, windowHeight );
 
         GL_InitState();
@@ -1216,8 +1220,9 @@ public:
         // verify it
         assert( glIsTexture( *tex_obj ) );
 
-        //
-        glPixelStorei( GL_UNPACK_ALIGNMENT, 1 );
+        // glPixelStore
+        // glPixelStorei( GL_UNPACK_ALIGNMENT, 1 );
+        // glPixelStorei( GL_UNPACK_ROW_LENGTH, 0 );
 
         // For immutable textures in opengl-3.3, use this with glTexSubImage2D()
         glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, (void*)0 );
@@ -1284,12 +1289,13 @@ public:
         // identity vertex shader
         const char * vertex_shader =
             "#version 150\n"
+            "uniform mat4 ProjMtx;\n"
             "in vec4 in_vertex;\n"
             "in vec4 in_color;\n"
             "out vec4 varying_color;\n"
             "void main(void) {\n"
             "    varying_color = in_color;\n"
-            "    gl_Position = in_vertex;\n"
+            "    gl_Position = ProjMtx * in_vertex;\n"
             "}\n";
 
         // identity fragment shader
@@ -1305,13 +1311,14 @@ public:
             "}\n";
 
         if ( !CompileShaderPair( programID, vertex_shader, fragment_shader ) ) {
-            fprintf( stderr, "Failure in Identity Shader\n" );
+            fprintf( stderr, "Failure in Identity Shader Program\n" );
             return false;
         }
 
         //glBindAttribLocation( *programID, 0, "in_vertex" );
         //glBindAttribLocation( *programID, 1, "in_color" );
 
+        m_ProjectionMatrix = glGetUniformLocation( *programID, "ProjMtx" );
         m_AttribInVertex  = glGetAttribLocation( *programID, "in_vertex" );
         m_AttribInColor  = glGetAttribLocation( *programID, "in_color" );
 
@@ -1322,13 +1329,14 @@ public:
     {
         const char * tex_vert_shader =
             "#version 150\n"
+            "uniform mat4 ProjMtx;\n"
             "in vec4 in_position;\n"
             "in vec2 in_texCoord;\n"
             "out vec2 inter_texCoord;\n"
             "void main(void)\n"
             "{\n"
             "   inter_texCoord = in_texCoord;\n"
-            "   gl_Position = in_position;\n"
+            "   gl_Position = ProjMtx * in_position;\n"
             "}\n";
 
         const char * tex_frag_shader =
@@ -1342,14 +1350,15 @@ public:
             "   out_fragColor = texture( texColors, inter_texCoord );\n"
             "}\n";
 
-        //glBindAttribLocation( shaderProgram, 0, "in_position" );
-        //glBindAttribLocation( shaderProgram, 1, "in_texCoord" );
-
         if ( !CompileShaderPair( programID, tex_vert_shader, tex_frag_shader ) ) {
-            fprintf( stderr, "Failure in Texture Shader\n" );
+            fprintf( stderr, "Failure in Texture Shader Program\n" );
             return false;
         }
 
+        //glBindAttribLocation( shaderProgram, 0, "in_position" );
+        //glBindAttribLocation( shaderProgram, 1, "in_texCoord" );
+
+        m_ProjectionMatrix2 = glGetUniformLocation( *programID, "ProjMtx" );
         m_AttribTexColors = glGetUniformLocation( *programID, "texColors" );
         m_AttribPosition  = glGetAttribLocation( *programID, "in_position" );
         m_AttribTexCoord  = glGetAttribLocation( *programID, "in_texCoord" );
@@ -1361,6 +1370,7 @@ public:
     void DrawScreenTexture( GLuint texNum, unsigned char * bytes )
     {
         glUseProgram( m_shaderTexture );
+        glUniformMatrix4fv( m_ProjectionMatrix2, 1, GL_FALSE, &m_OrthoProjection[0] );
 
         glEnable( GL_TEXTURE_2D );
 
@@ -1385,13 +1395,21 @@ public:
                          windowWidth, windowHeight,
                          GL_RGB, GL_UNSIGNED_BYTE, bytes );
 
-        // specify texture vertices & and tex-coords through VBO
-        static const GLfloat quad_data[] = {
-            // verteces
+/*
             -1.0f, -1.0f, 0.0f, 1.0f,
             +1.0f, -1.0f, 0.0f, 1.0f,
             +1.0f, +1.0f, 0.0f, 1.0f,
             -1.0f, +1.0f, 0.0f, 1.0f,
+*/
+
+        // specify texture vertices & and tex-coords through VBO
+        // draw both vertex and tex-coord counter clockwise
+        static const GLfloat quad_data[] = {
+            // vertices
+            0.0f, 0.0f, 0.0f, 1.0f,
+            (GLfloat)windowWidth, 0.0f, 0.0f, 1.0f,
+            (GLfloat)windowWidth, (GLfloat)windowHeight, 0.0f, 1.0f,
+            0.0f, (GLfloat)windowHeight, 0.0f, 1.0f,
             // tex coords
             0.0f, 0.0f,
             1.0f, 0.0f,
@@ -1447,6 +1465,7 @@ public:
 }while(0)
 
         glUseProgram( m_shaderColor );
+        glUniformMatrix4fv( m_ProjectionMatrix, 1, GL_FALSE, &m_OrthoProjection[0] );
 
         GLfloat * color4p = nullptr;
         GLfloat white[] = {
@@ -1491,11 +1510,11 @@ public:
         GLfloat h = pixels;
         GLfloat c[2] = { (GLfloat)windowWidth/2.0f, (GLfloat)windowHeight/2.0f };
 
-        // -1.0 <= x <= +1.0 ; -1.0 <= y <= +1.0
-        c[0] = 0.0f;
-        c[1] = 0.0f;
-        w = pixels/(GLfloat)(windowWidth/2.0f);
-        h = pixels/(GLfloat)(windowHeight/2.0f);
+        //// -1.0 <= x <= +1.0 ; -1.0 <= y <= +1.0
+        //c[0] = 0.0f;
+        //c[1] = 0.0f;
+        //w = pixels/(GLfloat)(windowWidth/2.0f);
+        //h = pixels/(GLfloat)(windowHeight/2.0f);
 
         const GLfloat line_cross[4][4] = {
             { c[0]-w, c[1], 0.0, 1.0 },
