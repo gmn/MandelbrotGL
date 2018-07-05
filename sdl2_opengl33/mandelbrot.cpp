@@ -948,7 +948,7 @@ private:
     int m_AttribTexCoord ;
     int m_AttribInVertex ;
     int m_AttribInColor  ;
-    int m_ProjectionMatrix, m_ProjectionMatrix2;
+    int m_ProjectionMatrix;
     GLfloat m_OrthoProjection[ 16 ];
 
 public:
@@ -1029,6 +1029,24 @@ public:
         return true;
     }
 
+    void GL_MakeIdentityMatrix44( GLfloat * v ) {
+        for ( int i = 0; i < 16; i++ ) { v[i] = 0.0f; }
+        v[0] = 1.0f;
+        v[5] = 1.0f;
+        v[10] = 1.0f;
+        v[15] = 1.0f;
+    }
+
+    void PrintMat44( float * v ) {
+        for ( int i = 0 ; i < 16; i+=4 ) {
+            for ( int j = 0; j < 4; j++ ) {
+                printf( "%.2f ", v[i+j] );
+            }
+            printf( "\n" );
+        }
+        printf( "\n" );
+    }
+
     void GL_ResetOrthographicProjection( int width, int height )
     {
         glViewport( 0, 0, ( GLsizei )width, ( GLsizei )height );
@@ -1046,9 +1064,8 @@ public:
         };
 
         memcpy( m_OrthoProjection, ortho_projection, sizeof(GLfloat) * 16 );
-
+        m_ProjectionMatrix = glGetUniformLocation( m_shaderColor, "ProjMtx" );
         glUniformMatrix4fv( m_ProjectionMatrix, 1, GL_FALSE, &m_OrthoProjection[0] );
-        glUniformMatrix4fv( m_ProjectionMatrix2, 1, GL_FALSE, &m_OrthoProjection[0] );
     }
 
     static int GL_InitState( void )
@@ -1283,7 +1300,7 @@ public:
         return true;
     }
 
-    // passthru shaders
+    // passthru shader - vertex + color
     bool CreateShaderProgram_Identity( GLuint * programID )
     {
         // identity vertex shader
@@ -1325,6 +1342,7 @@ public:
         return true;
     }
 
+    // passthru shader -
     bool CreateShaderProgram_Texture( GLuint * programID )
     {
         const char * tex_vert_shader =
@@ -1358,10 +1376,10 @@ public:
         //glBindAttribLocation( shaderProgram, 0, "in_position" );
         //glBindAttribLocation( shaderProgram, 1, "in_texCoord" );
 
-        m_ProjectionMatrix2 = glGetUniformLocation( *programID, "ProjMtx" );
-        m_AttribTexColors = glGetUniformLocation( *programID, "texColors" );
-        m_AttribPosition  = glGetAttribLocation( *programID, "in_position" );
-        m_AttribTexCoord  = glGetAttribLocation( *programID, "in_texCoord" );
+        m_ProjectionMatrix = glGetUniformLocation( *programID, "ProjMtx" );
+        m_AttribTexColors  = glGetUniformLocation( *programID, "texColors" );
+        m_AttribPosition   = glGetAttribLocation( *programID, "in_position" );
+        m_AttribTexCoord   = glGetAttribLocation( *programID, "in_texCoord" );
 
         return true;
     }
@@ -1369,9 +1387,6 @@ public:
 
     void DrawScreenTexture( GLuint texNum, unsigned char * bytes )
     {
-        glUseProgram( m_shaderTexture );
-        glUniformMatrix4fv( m_ProjectionMatrix2, 1, GL_FALSE, &m_OrthoProjection[0] );
-
         glEnable( GL_TEXTURE_2D );
 
         //
@@ -1380,11 +1395,21 @@ public:
         //load it into the graphics hardware:
         glBindTexture( GL_TEXTURE_2D, texNum );
 
+        // shader parms
+        glUseProgram( m_shaderTexture );
+
         glUniform1i( m_AttribTexColors, 0 );
         if ( glBindSampler )
             glBindSampler( 0, 0 );
 
-        //
+        //GL_ResetOrthographicProjection( windowWidth, windowHeight );
+        GLfloat mat[16];
+        GL_MakeIdentityMatrix44( mat );
+        //PrintMat44( mat );
+        GLuint projmtx = glGetUniformLocation( m_shaderTexture, "ProjMtx" );
+        glUniformMatrix4fv( projmtx, 1, GL_FALSE, mat );
+
+        // tex parms
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_on ? GL_LINEAR : GL_NEAREST );
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_on ? GL_LINEAR : GL_NEAREST );
 
@@ -1396,20 +1421,20 @@ public:
                          GL_RGB, GL_UNSIGNED_BYTE, bytes );
 
 /*
-            -1.0f, -1.0f, 0.0f, 1.0f,
-            +1.0f, -1.0f, 0.0f, 1.0f,
-            +1.0f, +1.0f, 0.0f, 1.0f,
-            -1.0f, +1.0f, 0.0f, 1.0f,
+            0.0f,                   0.0f,                   0.0f, 1.0f,
+            (GLfloat)windowWidth,   0.0f,                   0.0f, 1.0f,
+            (GLfloat)windowWidth,   (GLfloat)windowHeight,  0.0f, 1.0f,
+            0.0f,                   (GLfloat)windowHeight,  0.0f, 1.0f,
 */
 
         // specify texture vertices & and tex-coords through VBO
         // draw both vertex and tex-coord counter clockwise
-        static const GLfloat quad_data[] = {
+        const GLfloat quad_data[] = {
             // vertices
-            0.0f, 0.0f, 0.0f, 1.0f,
-            (GLfloat)windowWidth, 0.0f, 0.0f, 1.0f,
-            (GLfloat)windowWidth, (GLfloat)windowHeight, 0.0f, 1.0f,
-            0.0f, (GLfloat)windowHeight, 0.0f, 1.0f,
+            -1.0f, -1.0f, 0.0f, 1.0f,
+            +1.0f, -1.0f, 0.0f, 1.0f,
+            +1.0f, +1.0f, 0.0f, 1.0f,
+            -1.0f, +1.0f, 0.0f, 1.0f,
             // tex coords
             0.0f, 0.0f,
             1.0f, 0.0f,
@@ -1421,9 +1446,7 @@ public:
         GLuint buf;
         glGenBuffers( 1, &buf );
         glBindBuffer( GL_ARRAY_BUFFER, buf );
-        glBufferData( GL_ARRAY_BUFFER, sizeof(quad_data), quad_data,
-                        GL_STATIC_DRAW /* modified once and used many times */
-                    );
+        glBufferData( GL_ARRAY_BUFFER, sizeof(quad_data), quad_data, GL_STATIC_DRAW /* modified once and used many times */ );
 
         // vertex array
         GLuint vao;
@@ -1465,7 +1488,10 @@ public:
 }while(0)
 
         glUseProgram( m_shaderColor );
+        GL_ResetOrthographicProjection( windowWidth, windowHeight );
+        m_ProjectionMatrix = glGetUniformLocation( m_shaderColor, "ProjMtx" );
         glUniformMatrix4fv( m_ProjectionMatrix, 1, GL_FALSE, &m_OrthoProjection[0] );
+        //PrintMat44( m_OrthoProjection );
 
         GLfloat * color4p = nullptr;
         GLfloat white[] = {
