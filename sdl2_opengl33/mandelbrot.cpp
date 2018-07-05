@@ -182,6 +182,31 @@ struct BMPWriter {
 #else
     };
 #endif
+
+    struct bmpNT4HeaderExtension {
+        unsigned int RedMask;       /* Mask identifying bits of red component */
+        unsigned int GreenMask;     /* Mask identifying bits of green component */
+        unsigned int BlueMask;      /* Mask identifying bits of blue component */
+        unsigned int AlphaMask;     /* Mask identifying bits of alpha component */
+        unsigned int CSType;        /* Color space type */
+        unsigned int RedX;          /* X coordinate of red endpoint */
+        unsigned int RedY;          /* Y coordinate of red endpoint */
+        unsigned int RedZ;          /* Z coordinate of red endpoint */
+        unsigned int GreenX;        /* X coordinate of green endpoint */
+        unsigned int GreenY;        /* Y coordinate of green endpoint */
+        unsigned int GreenZ;        /* Z coordinate of green endpoint */
+        unsigned int BlueX;         /* X coordinate of blue endpoint */
+        unsigned int BlueY;         /* Y coordinate of blue endpoint */
+        unsigned int BlueZ;         /* Z coordinate of blue endpoint */
+        unsigned int GammaRed;      /* Gamma red coordinate scale value */
+        unsigned int GammaGreen;    /* Gamma green coordinate scale value */
+        unsigned int GammaBlue;     /* Gamma blue coordinate scale value */
+#ifdef __GNUC__
+    } __attribute__((packed));
+#else
+    };
+#endif
+
 #pragma pack(pop)
 
     static bool WriteRGB( const char * filename, unsigned char * pixels, int width, int height ) {
@@ -203,6 +228,11 @@ struct BMPWriter {
         image.biHeight = height;
         image.biPlanes = 1;
         image.biBitCount = 24;
+        image.biSizeImage = width * height * 3;
+        image.biXPelsPerMeter = 0xb12;
+        image.biYPelsPerMeter = 0xb12;
+        image.biClrUsed = 1 << image.biBitCount;
+        image.biClrImportant = 1 << image.biBitCount;
 
         FILE * fh = fopen( filename, "wb" );
         if ( !fh ) {
@@ -212,17 +242,17 @@ struct BMPWriter {
         fwrite( (void*) &header, szFh, 1, fh );
         fwrite( (void*) &image, szIh, 1, fh );
 
-        // Write the lines backwards. I must be displaying textures upside-down in opengl or something...
         int line = height - 1;
-        const int line_pix = width * 3;
-        while ( line >= 0 ) {
+        line = 0;
+        const int row_pixels = width * 3;
+        while ( line < height ) {
             unsigned char * p = &pixels[ line * width * 3 ];
-            for ( int i = 0; i < line_pix; i+=3 ) {
+            for ( int i = 0; i < row_pixels; i+=3 ) {
                 // flip R<-->B in RGB
                 unsigned char t[3] = { p[ i + 2 ], p[ i + 1 ], p[ i ] };
                 fwrite( (void*) t, 1, 3, fh );
             }
-            --line;
+            ++line;
         }
 
         fclose(fh);
@@ -535,58 +565,14 @@ public:
 
 //#define SMOOTH_COLOR( steps_, Tr_, Ti_ ) ( 5.602512 + ((double)steps_) - logHalfBase - log( log(Tr_ + Ti_) ) * logBase )
 
-#if 0
-    /*
-     * Convert hue-saturation-value/luminosity to RGB.
-     *
-     * Input ranges:
-     *   H =   [0, 360] (integer degrees)
-     *   S = [0.0, 1.0] (float)
-     *   V = [0.0, 1.0] (float)
-     */
-    inline void hsv_to_rgb( double h, double s, double v, color_t * color )
-    {
-        if ( v > 1.0 )
-            v = 1.0;
-
-        double hp = h / 60.0;
-        double c = v * s;
-
-        double rem = hp - floor(hp);
-
-        double x = c * (1.0 - fabs( (((int)hp) % 2) + rem - 1.0 ) );
-        double rgb[3] = {0.0, 0.0, 0.0};
-
-        if ( 0<=hp && hp<1 ) { rgb[0] = c; rgb[1] = x; rgb[2] = 0.0; }
-        if ( 1<=hp && hp<2 ) { rgb[0] = x; rgb[1] = c; rgb[2] = 0.0; }
-        if ( 2<=hp && hp<3 ) { rgb[0] = 0.0; rgb[1] = c; rgb[2] = x; }
-        if ( 3<=hp && hp<4 ) { rgb[0] = 0.0; rgb[1] = x; rgb[2] = c; }
-        if ( 4<=hp && hp<5 ) { rgb[0] = x; rgb[1] = 0.0; rgb[2] = c; }
-        if ( 5<=hp && hp<6 ) { rgb[0] = c; rgb[1] = 0.0; rgb[2] = x; }
-
-        double m = v - c;
-        rgb[0] += m;
-        rgb[1] += m;
-        rgb[2] += m;
-
-        rgb[0] *= 255.0;
-        rgb[1] *= 255.0;
-        rgb[2] *= 255.0;
-
-        color->r = rgb[0] > 255.0 ? 255 : rgb[0];
-        color->g = rgb[1] > 255.0 ? 255 : rgb[1];
-        color->b = rgb[2] > 255.0 ? 255 : rgb[2];
-    }
-#endif
-
-    /*
-     * Convert hue-saturation-value/luminosity to RGB.
-     *
-     * Input ranges:
-     *   H =   [0, 360] (integer degrees)
-     *   S = [0.0, 1.0] (float)
-     *   V = [0.0, 1.0] (float)
-     */
+/*
+ * Convert hue-saturation-value/luminosity to RGB.
+ *
+ * Input ranges:
+ *   H =   [0, 360] (integer degrees)
+ *   S = [0.0, 1.0] (float)
+ *   V = [0.0, 1.0] (float)
+ */
 #define HSV_TO_RGB( h__, s__, v__, color__ ) do {                                   \
     double h_ = h__;                                                                \
     double s_ = s__;                                                                \
@@ -934,11 +920,14 @@ private:
 
     bool useDesktopResolution;
     bool gl_filter_on;
-    GLuint m_shaderProgram;
+    GLuint m_shaderColor;
+    GLuint m_shaderTexture;
 
     int m_AttribTexColors;
     int m_AttribPosition ;
     int m_AttribTexCoord ;
+    int m_AttribInVertex ;
+    int m_AttribInColor  ;
 
 public:
 
@@ -1015,14 +1004,6 @@ public:
         SDL_GL_SetAttribute( SDL_GL_DEPTH_SIZE, 24 );
         SDL_GL_SetAttribute( SDL_GL_STENCIL_SIZE, 8 );
 
-#if 0
-#if GL_VERSION_MAJOR > 2
-        // SDL_GL_CONTEXT_CORE gives us only the newer version, deprecated functions are disabled
-        SDL_GL_SetAttribute( SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE );
-        SDL_GL_SetAttribute( SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG );
-        SDL_GL_SetAttribute( SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE );
-#endif
-#endif
         return true;
     }
 
@@ -1063,7 +1044,7 @@ public:
         glBlendEquation( GL_FUNC_ADD );
 
         // cull backfaces
-        //glEnable(GL_CULL_FACE);
+        glEnable(GL_CULL_FACE);
 
         // flat colors
         glShadeModel( GL_FLAT );
@@ -1166,7 +1147,10 @@ public:
 
         InitScreenTexture( &textureHandle, &arrayHandle, windowWidth, windowHeight, GL_NEAREST );
 
-        if ( !CreateShaderProgram_Identity( &m_shaderProgram ) ) {
+        if ( !CreateShaderProgram_Identity( &m_shaderColor ) ) {
+            return false;
+        }
+        if ( !CreateShaderProgram_Texture( &m_shaderTexture ) ) {
             return false;
         }
 
@@ -1192,8 +1176,8 @@ public:
         mandelbrot.GetRange( xRange, yRange );
     }
 
-    static void InitScreenTexture( GLuint * tex_obj, GLuint * array_handle, int width, int height, GLenum filterMode ) {
-
+    static void InitScreenTexture( GLuint * tex_obj, GLuint * array_handle, int width, int height, GLenum filterMode )
+    {
         //
         // TEXTURE
         //
@@ -1209,20 +1193,16 @@ public:
         // set the generated id as a texture type
         glBindTexture( GL_TEXTURE_2D, *tex_obj );
 
-        // verify it works
+        // verify it
         assert( glIsTexture( *tex_obj ) );
 
-        // ?
+        //
         glPixelStorei( GL_UNPACK_ALIGNMENT, 1 );
 
-        // For immutable textures in opengl-3.3, use:
-        //  glTexStorage2D()
-        //  glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, 0 );
-        // To create mutable textures use:
+        // For immutable textures in opengl-3.3, use this with glTexSubImage2D()
         glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, (void*)0 );
-        // with glTexSubImage2D()
 
-        // GL_NEAREST displays the actual computed pixel from texture data rather than an interpolation
+        // GL_NEAREST displays the actual pixel from texture data rather than interpolation
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filterMode );
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filterMode );
 
@@ -1231,54 +1211,51 @@ public:
 
         glBindTexture( GL_TEXTURE_2D, 0 );
         glDisable( GL_TEXTURE_2D );
+    }
 
-#if 0
-    for opengl >= 3.2
+    bool CompileShaderPair( GLuint * progID, const char * vertSrc, const char * fragSrc )
+    {
+        // check compilation
+        GLint status_return = 0;
 
-        //
-        // vertex buffer object (VBO) with texture coordinates
-        //
-        glEnableClientState( GL_VERTEX_ARRAY );
-        glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+        // create the shader units
+        GLuint vertShader = glCreateShader( GL_VERTEX_SHADER );
+        GLuint fragShader = glCreateShader( GL_FRAGMENT_SHADER );
 
-        int tex_coords[4] = { 0,0 , 0,1 , 1,1 , 1,0 };
-        int vertices[4] = { 0,windowHeight , 0,0 , windowWidth,0 , windowWidth,windowHeight }
+        // associate each shader handle with its source code
+        glShaderSource( vertShader, 1, (const GLchar **)&vertSrc, 0 );
+        glShaderSource( fragShader, 1, (const GLchar **)&fragSrc, 0 );
 
-        glGenBuffer( 1, array_handle );
-        glBindBuffer( GL_ARRAY_BUFFER, *array_handle );
-        glBufferData( GL_ARRAY_BUFFER, 3 * 2, vertices, GL_STATIC_DRAW /* set once and reuse */ );
+        // compile
+        glCompileShader( vertShader );
+        glGetShaderiv( vertShader, GL_COMPILE_STATUS, &status_return );
+        if ( GL_FALSE == status_return ) {
+            fprintf( stderr, "failed to compile vertex shader\n" );
+            return false;
+        }
 
-        //glVertexPointer( 3, GL_UNSIGNED_CHAR, 0, vertices );
-        glTexCoordPointer( 2, GL_UNSIGNED_CHAR, 0, (void*)(sizeof(unsigned char)*3*4) );
+        glCompileShader( fragShader );
+        glGetShaderiv( fragShader, GL_COMPILE_STATUS, &status_return );
+        if ( GL_FALSE == status_return ) {
+            fprintf( stderr, "failed to compile fragment shader\n" );
+            return false;
+        }
 
-        glDisableClientState(GL_VERTEX_ARRAY);
-        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-#endif
+        // link together and create a gl shader program
+        GLuint shaderProgram = glCreateProgram();
 
-#if 0
-        // A GL Framebuffer groups 0, 1, or more textures, and 0 or 1 depth buffer.
+        glAttachShader( shaderProgram, vertShader );
+        glAttachShader( shaderProgram, fragShader );
 
-        // DEPTH
-        glGenTextures(1, &depthTexture);
-        glBindTexture(GL_TEXTURE_2D, depthTexture);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        //glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, fbo_width, fbo_height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, NULL);
-        glBindTexture(GL_TEXTURE_2D, 0);
+        glLinkProgram( shaderProgram );
+        glGetProgramiv( shaderProgram, GL_LINK_STATUS, &status_return );
+        if ( GL_FALSE == status_return ) {
+            fprintf( stderr, "failed to link shaders\n" );
+            return false;
+        }
 
-        // Build the frameBuffer.
-        glGenFramebuffers( 1, fb_obj );
-        glBindFramebuffer( GL_FRAMEBUFFER, *fb_obj );
-        glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, *tex_obj, 0 );
-        glFramebufferTexture2D( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0 );
-        GLenum status = glCheckFramebufferStatus( GL_FRAMEBUFFER );
-        if ( status != GL_FRAMEBUFFER_COMPLETE )
-            fprintf(stderr, "GL Framebuffer isn't happy about something\n");// Error
-
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-#endif
+        *progID = shaderProgram;
+        return true;
     }
 
     // passthru shaders
@@ -1307,9 +1284,22 @@ public:
             "    out_fragColor = varying_color;\n"
             "}\n";
 
-            //"in vec4 Color;\n"
-            //"smooth out vec2 inter_texCoord;\n"
+        if ( !CompileShaderPair( programID, vertex_shader, fragment_shader ) ) {
+            fprintf( stderr, "Failure in Identity Shader\n" );
+            return false;
+        }
 
+        //glBindAttribLocation( *programID, 0, "in_vertex" );
+        //glBindAttribLocation( *programID, 1, "in_color" );
+
+        m_AttribInVertex  = glGetAttribLocation( *programID, "in_vertex" );
+        m_AttribInColor  = glGetAttribLocation( *programID, "in_color" );
+
+        return true;
+    }
+
+    bool CreateShaderProgram_Texture( GLuint * programID )
+    {
         const char * tex_vert_shader =
             "#version 150\n"
             "in vec4 in_position;\n"
@@ -1332,63 +1322,26 @@ public:
             "   out_fragColor = texture( texColors, inter_texCoord );\n"
             "}\n";
 
-        // create the shader units
-        GLuint vertShader = glCreateShader( GL_VERTEX_SHADER );
-        GLuint fragShader = glCreateShader( GL_FRAGMENT_SHADER );
+        //glBindAttribLocation( shaderProgram, 0, "in_position" );
+        //glBindAttribLocation( shaderProgram, 1, "in_texCoord" );
 
-        // associate each shader handle with its source code
-        glShaderSource( vertShader, 1, (const GLchar **)&tex_vert_shader, 0 );
-        glShaderSource( fragShader, 1, (const GLchar **)&tex_frag_shader, 0 );
-        //glShaderSource( vertShader, 1, (const GLchar **)&vertex_shader, 0 );
-        //glShaderSource( fragShader, 1, (const GLchar **)&fragment_shader, 0 );
-
-        // compile and check compilation
-        GLint status_return = 0;
-
-        glCompileShader( vertShader );
-        glGetShaderiv( vertShader, GL_COMPILE_STATUS, &status_return );
-        if ( GL_FALSE == status_return ) {
-            fprintf( stderr, "failed to compile vertex shader\n" );
+        if ( !CompileShaderPair( programID, tex_vert_shader, tex_frag_shader ) ) {
+            fprintf( stderr, "Failure in Texture Shader\n" );
             return false;
         }
 
-        glCompileShader( fragShader );
-        glGetShaderiv( fragShader, GL_COMPILE_STATUS, &status_return );
-        if ( GL_FALSE == status_return ) {
-            fprintf( stderr, "failed to compile fragment shader\n" );
-            return false;
-        }
+        m_AttribTexColors = glGetUniformLocation( *programID, "texColors" );
+        m_AttribPosition  = glGetAttribLocation( *programID, "in_position" );
+        m_AttribTexCoord  = glGetAttribLocation( *programID, "in_texCoord" );
 
-        // link together and create a gl shader program
-        GLuint shaderProgram = glCreateProgram();
-
-        glAttachShader( shaderProgram, vertShader );
-        glAttachShader( shaderProgram, fragShader );
-
-        glBindAttribLocation( shaderProgram, 0, "in_position" );
-        glBindAttribLocation( shaderProgram, 1, "in_texCoord" );
-/*
-        //glBindAttribLocation( shaderProgram, 0, "in_vertex" );
-        //glBindAttribLocation( shaderProgram, 1, "in_color" );
-*/
-
-        glLinkProgram( shaderProgram );
-        glGetProgramiv( shaderProgram, GL_LINK_STATUS, &status_return );
-        if ( GL_FALSE == status_return ) {
-            fprintf( stderr, "failed to link shaders\n" );
-            return false;
-        }
-
-        m_AttribTexColors = glGetUniformLocation( shaderProgram, "texColors" );
-        m_AttribPosition  = glGetAttribLocation( shaderProgram, "in_position" );
-        m_AttribTexCoord  = glGetAttribLocation( shaderProgram, "in_texCoord" );
-
-        *programID = shaderProgram;
         return true;
     }
 
+
     void DrawScreenTexture( GLuint texNum, unsigned char * bytes )
     {
+        glUseProgram( m_shaderTexture );
+
         glEnable( GL_TEXTURE_2D );
 
         //
@@ -1455,7 +1408,8 @@ public:
         glDisable( GL_TEXTURE_2D );
     }
 
-    void DrawCrosshairs() {
+    void DrawCrosshairs()
+    {
         static int lastCrosshair = drawCrosshair;
         int pixels = 10;
 
@@ -1472,41 +1426,86 @@ public:
     }\
 }while(0)
 
+        glUseProgram( m_shaderColor );
+
+        GLfloat * color4p = nullptr;
+        GLfloat white[] = {
+            1.0f, 1.0f, 1.0f, 1.0f,
+            1.0f, 1.0f, 1.0f, 1.0f,
+            1.0f, 1.0f, 1.0f, 1.0f,
+            1.0f, 1.0f, 1.0f, 1.0f
+        };
+        GLfloat grey[] = {
+            0.4f, 0.4f, 0.4f, 1.0f,
+            0.4f, 0.4f, 0.4f, 1.0f,
+            0.4f, 0.4f, 0.4f, 1.0f,
+            0.4f, 0.4f, 0.4f, 1.0f
+        };
+
         if ( 0 == drawCrosshair ) {
             CROSSHAIR_MSG();
             return;
         } else if ( 1 == drawCrosshair ) {
             CROSSHAIR_MSG();
             pixels = 12;
-            glColor4f( 1.f, 1.f, 1.f, 1.f );
+            color4p = white;
         } else if ( 2 == drawCrosshair ) {
             CROSSHAIR_MSG();
             pixels = 32;
-            glColor4f( 1.f, 1.f, 1.f, 1.f );
+            color4p = white;
         } else if ( 3 == drawCrosshair ) {
             CROSSHAIR_MSG();
             pixels = 12;
-            glColor4f( 0.4f, 0.4f, 0.4f, 1.f );
+            color4p = grey;
         } else if ( 4 == drawCrosshair ) {
             CROSSHAIR_MSG();
             pixels = 32;
-            glColor4f( 0.4f, 0.4f, 0.4f, 1.f );
+            color4p = grey;
         }
 #undef CROSSHAIR_MSG
 
-        int w = pixels;
-        int h = ( ((double)windowWidth/(double)windowHeight) * w );
-        h = pixels;
-        int c[2] = { windowWidth/2, windowHeight/2 };
+        assert( color4p != nullptr );
+
+        // use this when glOrtho is configured to screen resolution
+        GLfloat w = pixels;
+        GLfloat h = pixels;
+        GLfloat c[2] = { (GLfloat)windowWidth/2.0f, (GLfloat)windowHeight/2.0f };
+
+        // -1.0 <= x <= +1.0 ; -1.0 <= y <= +1.0
+        c[0] = 0.0f;
+        c[1] = 0.0f;
+        w = pixels/(GLfloat)(windowWidth/2.0f);
+        h = pixels/(GLfloat)(windowHeight/2.0f);
+
+        const GLfloat line_cross[4][4] = {
+            { c[0]-w, c[1], 0.0, 1.0 },
+            { c[0]+w, c[1], 0.0, 1.0 },
+            { c[0], c[1]-h, 0.0, 1.0 },
+            { c[0], c[1]+h, 0.0, 1.0 }
+        };
 
         glLineWidth( 1.0 );
 
-        glBegin( GL_LINES );
-            glVertex2f( c[0]-w, c[1] );
-            glVertex2f( c[0]+w, c[1] );
-            glVertex2f( c[0], c[1]-h );
-            glVertex2f( c[0], c[1]+h );
-        glEnd();
+        GLuint vao;
+        GLuint vbo[2];
+
+        glGenVertexArrays( 1, &vao );
+        glBindVertexArray( vao );
+        glGenBuffers( 2, vbo );
+
+        // vertex array
+        glBindBuffer( GL_ARRAY_BUFFER, vbo[0] );
+        glBufferData( GL_ARRAY_BUFFER, sizeof(line_cross), line_cross, GL_STATIC_DRAW );
+        glVertexAttribPointer( m_AttribInVertex, 4, GL_FLOAT, GL_FALSE, 0, (GLvoid*)0 );
+        glEnableVertexAttribArray( m_AttribInVertex );
+
+        // color array
+        glBindBuffer( GL_ARRAY_BUFFER, vbo[1] );
+        glBufferData( GL_ARRAY_BUFFER, sizeof(GLfloat)*16, color4p, GL_STATIC_DRAW );
+        glVertexAttribPointer( m_AttribInColor, 4, GL_FLOAT, GL_FALSE, 0, (GLvoid*)0 );
+        glEnableVertexAttribArray( m_AttribInColor );
+
+        glDrawArrays( GL_LINES, 0, 4 );
     }
 
     void DrawMouseline() {
@@ -1606,7 +1605,8 @@ public:
 
         // using vector arithmetic:
         //  center = p_scaled + q ; To shift to p we add -q ; -q = -1 * ( center - p_scaled )
-        mandelbrot.IncLookAt( -1.0 * ( center[0] - p_scaled[0] ), -1.0 * ( center[1] - p_scaled[1] ) );
+        //mandelbrot.IncLookAt( -1.0 * ( center[0] - p_scaled[0] ), -1.0 * ( center[1] - p_scaled[1] ) );
+        mandelbrot.IncLookAt( -1.0 * ( center[0] - p_scaled[0] ), ( center[1] - p_scaled[1] ) );
     }
 
     void HandleMouseClick( int x, int y, SDL_MouseButtonEvent * b_evt )
@@ -2131,14 +2131,12 @@ public:
         glClear( GL_COLOR_BUFFER_BIT );
         SDL_GL_MakeCurrent( mainWindow, mainGLContext );
 
-        glUseProgram( m_shaderProgram );
-
         // draw the computed mandelbrot
         DrawScreenTexture( textureHandle, screenTextureBuffer );
 
         // mouse line, crosshair and text goes behind gui
         //DrawMouseline();
-        //DrawCrosshairs();
+        DrawCrosshairs();
         //DrawMessages();
 
         // draw the GUI
