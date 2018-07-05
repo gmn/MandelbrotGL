@@ -183,7 +183,7 @@ struct BMPWriter {
     };
 #endif
 
-    struct bmpNT4HeaderExtension {
+    struct bmpNT4Extension {
         unsigned int RedMask;       /* Mask identifying bits of red component */
         unsigned int GreenMask;     /* Mask identifying bits of green component */
         unsigned int BlueMask;      /* Mask identifying bits of blue component */
@@ -212,45 +212,65 @@ struct BMPWriter {
     static bool WriteRGB( const char * filename, unsigned char * pixels, int width, int height ) {
         bmpFileHeader header;
         bmpImageHeader image;
-        size_t szFh = sizeof(bmpFileHeader);
-        size_t szIh = sizeof(bmpImageHeader);
+        bmpNT4Extension nt4ext;
+        size_t szFh = sizeof( bmpFileHeader );
+        size_t szIh = sizeof( bmpImageHeader );
+        size_t szNt = sizeof( bmpNT4Extension );
+        szNt = 0u; // version 3
         size_t bufferSz = width * height * 3;
 
         memset( &header, 0, sizeof( bmpFileHeader ) );
         header.bfType[0] = 'B';
         header.bfType[1] = 'M';
-        header.bfSize = szFh + szIh + bufferSz;
-        header.bfOffBits = ( szFh + szIh );
+        header.bfSize = szFh + szIh + szNt + bufferSz;
+        header.bfOffBits = szFh + szIh + szNt;
 
         memset( &image, 0, sizeof( bmpImageHeader ) );
-        image.biSize = szIh;
+        image.biSize = szIh + szNt;
         image.biWidth = width;
         image.biHeight = height;
         image.biPlanes = 1;
         image.biBitCount = 24;
+        //image.biCompression = 3; // nt version always has compression of 3
         image.biSizeImage = width * height * 3;
         image.biXPelsPerMeter = 0xb12;
         image.biYPelsPerMeter = 0xb12;
         image.biClrUsed = 1 << image.biBitCount;
         image.biClrImportant = 1 << image.biBitCount;
 
+        memset( &nt4ext, 0, sizeof( nt4ext ) );
+        nt4ext.RedMask   = 0x00FF0000;
+        nt4ext.GreenMask = 0x0000FF00;
+        nt4ext.BlueMask  = 0x000000FF;
+        nt4ext.AlphaMask = 0xFF000000;
+        nt4ext.CSType    = 0x73524742; // sRGB
+
+        // open
         FILE * fh = fopen( filename, "wb" );
         if ( !fh ) {
             return false;
         }
 
+        // write headers
         fwrite( (void*) &header, szFh, 1, fh );
-        fwrite( (void*) &image, szIh, 1, fh );
+        fwrite( (void*) &image,  szIh, 1, fh );
+        //fwrite( (void*) &nt4ext, szNt, 1, fh );
 
+        // write data
         int line = height - 1;
         line = 0;
         const int row_pixels = width * 3;
+        const int remainder = 4 - ( row_pixels % 4 );
         while ( line < height ) {
             unsigned char * p = &pixels[ line * width * 3 ];
             for ( int i = 0; i < row_pixels; i+=3 ) {
                 // flip R<-->B in RGB
                 unsigned char t[3] = { p[ i + 2 ], p[ i + 1 ], p[ i ] };
                 fwrite( (void*) t, 1, 3, fh );
+            }
+            if ( remainder != 4 ) {
+                char buf[4];
+                fwrite( (void*)buf, 1, remainder, fh );
             }
             ++line;
         }
