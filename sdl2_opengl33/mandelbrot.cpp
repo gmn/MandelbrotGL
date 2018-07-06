@@ -216,7 +216,7 @@ struct BMPWriter {
         size_t szFh = sizeof( bmpFileHeader );
         size_t szIh = sizeof( bmpImageHeader );
         size_t szNt = sizeof( bmpNT4Extension );
-        szNt = 0u; // version 3
+        szNt = 0u; // Version 3. Not using 4.0 header.
         size_t bufferSz = width * height * 3;
 
         memset( &header, 0, sizeof( bmpFileHeader ) );
@@ -231,7 +231,6 @@ struct BMPWriter {
         image.biHeight = height;
         image.biPlanes = 1;
         image.biBitCount = 24;
-        //image.biCompression = 3; // nt version always has compression of 3
         image.biSizeImage = width * height * 3;
         image.biXPelsPerMeter = 0xb12;
         image.biYPelsPerMeter = 0xb12;
@@ -254,7 +253,7 @@ struct BMPWriter {
         // write headers
         fwrite( (void*) &header, szFh, 1, fh );
         fwrite( (void*) &image,  szIh, 1, fh );
-        //fwrite( (void*) &nt4ext, szNt, 1, fh );
+        //fwrite( (void*) &nt4ext, szNt, 1, fh ); // 3.5 version doesn't need it.
 
         // write data
         int line = height - 1;
@@ -268,8 +267,9 @@ struct BMPWriter {
                 unsigned char t[3] = { p[ i + 2 ], p[ i + 1 ], p[ i ] };
                 fwrite( (void*) t, 1, 3, fh );
             }
+            // BMP spec: line length must be multiple of 4 bytes; pad if necessary.
             if ( remainder != 4 ) {
-                char buf[4];
+                unsigned char buf[4] = { 0x0, 0x0, 0x0, 0x0 };
                 fwrite( (void*)buf, 1, remainder, fh );
             }
             ++line;
@@ -942,6 +942,7 @@ private:
     bool gl_filter_on;
     GLuint m_shaderColor;
     GLuint m_shaderTexture;
+    GLuint m_shaderAlphaTexture;
 
     int m_AttribTexColors;
     int m_AttribPosition ;
@@ -1176,7 +1177,7 @@ public:
         // Do we have a main window?
         if ( !mainWindow ) {
             std::cout << "Unable to create window\n";
-            CheckSDLError(__LINE__); // FIXME I hate this naive function
+            CheckSDLError(__LINE__); // TODO I hate this naive function; rewrite it
             return false;
         }
 
@@ -1205,6 +1206,9 @@ public:
             return false;
         }
         if ( !CreateShaderProgram_Texture( &m_shaderTexture ) ) {
+            return false;
+        }
+        if ( !CreateShaderProgram_AlphaTexture( &m_shaderAlphaTexture ) ) {
             return false;
         }
 
@@ -1308,6 +1312,9 @@ public:
             return false;
         }
 
+        glDeleteShader( vertShader );
+        glDeleteShader( fragShader );
+
         *progID = shaderProgram;
         return true;
     }
@@ -1354,7 +1361,7 @@ public:
         return true;
     }
 
-    // passthru shader -
+    // passthru shader - texture fragments
     bool CreateShaderProgram_Texture( GLuint * programID )
     {
         const char * tex_vert_shader =
@@ -1396,6 +1403,64 @@ public:
         return true;
     }
 
+    bool CreateShaderProgram_AlphaTexture( GLuint * programID )
+    {
+        const char * vert_shader =
+            "#version 150\n"
+            "uniform mat4 ProjMtx;\n"
+            "in vec4 in_position;\n"
+            "in vec2 in_texCoord;\n"
+            "out vec2 inter_texCoord;\n"
+            "void main(void)\n"
+            "{\n"
+            "   inter_texCoord = in_texCoord;\n"
+            "   gl_Position = ProjMtx * in_position;\n"
+            "}\n";
+
+        const char * geom_shader =
+            "#version 150\n"
+            "precision highp float;\n"
+            "layout (triangles) in;\n"
+            "layout (line_strip) out;\n"
+            "layout (max_vertices = 8) out;\n"
+            "in Vertex\n"
+            "{\n"
+            "   vec3 normal;\n"
+            "} vertex[];\n"
+            "// Uniform to hold the model-view-projection matrix\n"
+            "uniform mat4 mvp;\n"
+            "// Uniform to store the length of the visualized normals\n"
+            "uniform float normal_length;\n"
+            "for (int i = 0; i < gl_in.length(); i++) {\n"
+            "gl_Position = mvp * gl_in[i].gl_Position;\n"
+            "EmitVertex();\n"
+            "gl_Position = mvp * vec4(gl_in[i].gl_Position.xyz +\n"
+            "vertex[i].normal * normal_length, 1.0);\n"
+            "EmitVertex();\n"
+            "EndPrimitive();\n";
+
+        const char * frag_shader =
+            "#version 150\n"
+            "precision highp float;\n"
+            "out vec4 out_fragColor;\n"
+            "uniform sampler2D texColors;\n"
+            "in vec2 inter_texCoord;\n"
+            "void main(void)\n"
+            "{\n"
+            "   vec4 c = texture( texColors, inter_texCoord );\n"
+            "   if ( c.a < 0.1 )\n"
+            "       discard;\n"
+            "   out_fragColor = vec4(1,1,1,1);\n"
+            "}\n";
+
+        if ( !CompileShaderPair( programID, vert_shader, frag_shader ) ) {
+            fprintf( stderr, "Failure in Alpha Texture Shader Program\n" );
+            return false;
+        }
+
+
+        return true;
+    }
 
     void DrawScreenTexture( GLuint texNum, unsigned char * bytes )
     {
@@ -1414,12 +1479,8 @@ public:
         if ( glBindSampler )
             glBindSampler( 0, 0 );
 
-        GL_ResetOrthographicProjection( windowWidth, windowHeight );
-        //GLfloat mat[16];
         //GL_OrthoScreen( mat, (GLfloat)windowWidth, (GLfloat)windowHeight );
-        //static int count;
-        //while ( count++ < 4 )
-        //    PrintMat44( mat );
+        GL_ResetOrthographicProjection( windowWidth, windowHeight );
         GLuint projmtx = glGetUniformLocation( m_shaderTexture, "ProjMtx" );
         glUniformMatrix4fv( projmtx, 1, GL_FALSE, m_OrthoProjection );
 
@@ -1552,12 +1613,6 @@ public:
         GLfloat h = pixels;
         GLfloat c[2] = { (GLfloat)windowWidth/2.0f, (GLfloat)windowHeight/2.0f };
 
-        //// -1.0 <= x <= +1.0 ; -1.0 <= y <= +1.0
-        //c[0] = 0.0f;
-        //c[1] = 0.0f;
-        //w = pixels/(GLfloat)(windowWidth/2.0f);
-        //h = pixels/(GLfloat)(windowHeight/2.0f);
-
         const GLfloat line_cross[4][4] = {
             { c[0]-w, c[1], 0.0, 1.0 },
             { c[0]+w, c[1], 0.0, 1.0 },
@@ -1602,11 +1657,43 @@ public:
             return;
         }
 
-        glLineWidth( 1.0 );
-        glBegin( GL_LINES );
-            glVertex2i( windowWidth/2, windowHeight/2 );
-            glVertex2i( mouse_line[0], mouse_line[1] );
-        glEnd();
+        const GLfloat line[] = {
+            // single line
+            windowWidth/2.0f,       windowHeight/2.0f,      -0.1f, 1.0f,
+            (GLfloat)mouse_line[0], (GLfloat)mouse_line[1], -0.1f, 1.0f,
+            // colors
+            1.0f, 0.7f, 0.15f, 0.8f,
+            1.0f, 1.0f, 0.3f,  0.8f
+        };
+
+        glLineWidth( 1.0f );
+
+        // basic shader
+        glUseProgram( m_shaderColor );
+
+        // set the projection
+        m_ProjectionMatrix = glGetUniformLocation( m_shaderColor, "ProjMtx" );
+        glUniformMatrix4fv( m_ProjectionMatrix, 1, GL_FALSE, &m_OrthoProjection[0] );
+
+        GLuint vao;
+        GLuint vbo;
+
+        glGenVertexArrays( 1, &vao );
+        glBindVertexArray( vao );
+        glGenBuffers( 1, &vbo );
+        glBindBuffer( GL_ARRAY_BUFFER, vbo );
+
+        glEnableVertexAttribArray( m_AttribInVertex );
+        glEnableVertexAttribArray( m_AttribInColor );
+
+        // hand data pointer to opengl
+        glBufferData( GL_ARRAY_BUFFER, sizeof(line), line, GL_STATIC_DRAW );
+        // tell it the vertex pointer
+        glVertexAttribPointer( m_AttribInVertex, 4, GL_FLOAT, GL_FALSE, 0, (GLvoid*)0 );
+        // tell it the color pointer
+        glVertexAttribPointer( m_AttribInColor, 4, GL_FLOAT, GL_FALSE, 0, (GLvoid*)( 8 * sizeof(GLfloat) ) );
+
+        glDrawArrays( GL_LINES, 0, 2 );
     }
 
     void ResetMouseline() {
@@ -1918,13 +2005,22 @@ public:
 
     void my_stbtt_print(float x, float y, char *text )
     {
-        glColor4f( 1.0f, 1.0f, 1.0f, 1.0f );
+        #define MSG_LEN 4000
+        float msg[ MSG_LEN ]; // 16k. @ 64/character yields 250 letters max
+        int index = 0;
+        memset( msg, 0, sizeof(msg) );
+
+        GLushort idx = 0;
+        GLushort index_count = 0;
+        GLushort indices[ 256 ];
+        memset( indices, 0, sizeof( indices ) );
 
         // assume orthographic projection with units = screen pixels, origin at top left
-        glEnable(GL_TEXTURE_2D);
-        glBindTexture(GL_TEXTURE_2D, *ftex);
-        glBegin(GL_QUADS);
-        while (*text) {
+        glEnable( GL_TEXTURE_2D );
+        glBindTexture( GL_TEXTURE_2D, *ftex );
+
+        while (*text)
+        {
             if (*text >= 32 && *text < 128) {
                 stbtt_aligned_quad q;
                 stbtt_GetBakedQuad(cdata, font_scale, font_scale, *text-32, &x, &y, &q, 1);//1=opengl & d3d10+,0=d3d9
@@ -1932,17 +2028,95 @@ public:
                 const stbtt_bakedchar *b = cdata + *text-32;
                 int y_off = b->yoff;
                 if ( *text == '-' || *text == '=' ) y_off = y_off + y_off/2;
+                msg[ index++ ] = q.x0;
+                msg[ index++ ] = q.y0-y_off;
+                msg[ index++ ] = 0.0; msg[ index++ ] = 1.0;
+                msg[ index++ ] = q.s0;
+                msg[ index++ ] = q.t0;
 
+                msg[ index++ ] = q.x1;
+                msg[ index++ ] = q.y0-y_off;
+                msg[ index++ ] = 0.0; msg[ index++ ] = 1.0;
+                msg[ index++ ] = q.s1;
+                msg[ index++ ] = q.t0;
+
+                msg[ index++ ] = q.x1;
+                msg[ index++ ] = q.y1-y_off;
+                msg[ index++ ] = 0.0; msg[ index++ ] = 1.0;
+                msg[ index++ ] = q.s1;
+                msg[ index++ ] = q.t1;
+
+                msg[ index++ ] = q.x0;
+                msg[ index++ ] = q.y1-y_off;
+                msg[ index++ ] = 0.0; msg[ index++ ] = 1.0;
+                msg[ index++ ] = q.s0;
+                msg[ index++ ] = q.t1;
+/*
                 glTexCoord2f(q.s0,q.t1); glVertex2f(q.x0,q.y0-y_off);
                 glTexCoord2f(q.s0,q.t0); glVertex2f(q.x0,q.y1-y_off);
                 glTexCoord2f(q.s1,q.t0); glVertex2f(q.x1,q.y1-y_off);
                 glTexCoord2f(q.s1,q.t1); glVertex2f(q.x1,q.y0-y_off);
+*/
+
+                indices[ index_count++ ] = idx++;
+                indices[ index_count++ ] = idx++;
+                indices[ index_count++ ] = idx++;
+                indices[ index_count++ ] = idx++;
+                indices[ index_count++ ] = 0xFFFF;
+            }
+            if ( ++index >= MSG_LEN-1 ) {
+                fprintf( stderr, "******Warning: message length hit end of crappy print buffer\n" );
+                break;
             }
             ++text;
         }
-        glEnd();
-        glDisable(GL_TEXTURE_2D);
+
+        GLuint vao;
+        GLuint vbo;
+
+        glGenVertexArrays( 1, &vao );
+        glBindVertexArray( vao );
+        glGenBuffers( 1, &vbo );
+        glBindBuffer( GL_ARRAY_BUFFER, vbo );
+        glBufferData( GL_ARRAY_BUFFER, index*sizeof(float), msg, GL_STATIC_DRAW );
+
+        GLuint ebo;
+        glGenBuffers( 1, &ebo );
+        glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, ebo );
+        glBufferData( GL_ELEMENT_ARRAY_BUFFER, index_count * sizeof(GLushort), indices, GL_STATIC_DRAW );
+
+        const GLsizei stride = 6 * sizeof(float);
+        glVertexAttribPointer( 0, 4, GL_FLOAT, GL_FALSE, stride, (GLvoid*)(  0 * sizeof(GLfloat) ) );
+        glVertexAttribPointer( 1, 2, GL_FLOAT, GL_FALSE, stride, (GLvoid*)( 16 * sizeof(GLfloat) ) );
+
+        // shader
+        {
+            glUseProgram( m_shaderAlphaTexture );
+
+            GLuint projmtrx = glGetUniformLocation( m_shaderAlphaTexture, "ProjMtx" );
+            GLuint texColor = glGetUniformLocation( m_shaderAlphaTexture, "texColors" );
+            GLuint position = glGetAttribLocation( m_shaderAlphaTexture, "in_position" );
+            GLuint texcoord = glGetAttribLocation( m_shaderAlphaTexture, "in_texCoord" );
+
+            glUniform1i( texColor, 0 );
+            if ( glBindSampler )
+                glBindSampler( 0, 0 );
+
+            glEnableVertexAttribArray( position );
+            glEnableVertexAttribArray( texcoord );
+            glUniformMatrix4fv( projmtrx, 1, GL_FALSE, m_OrthoProjection );
+        }
+
+        glEnable( GL_PRIMITIVE_RESTART );
+        glPrimitiveRestartIndex( 0xFFFF );
+
+        //glDrawArrays( GL_TRIANGLE_FAN, 0, index/6 );
+        glDrawElements( GL_TRIANGLE_FAN, index_count, GL_UNSIGNED_SHORT, (const GLvoid*)0 );
+
+        glBindTexture( GL_TEXTURE_2D, 0 );
+        glDisable( GL_TEXTURE_2D );
     }
+
 
     void DrawMessages() {
         char buf[256];
@@ -2216,9 +2390,9 @@ public:
         DrawScreenTexture( textureHandle, screenTextureBuffer );
 
         // mouse line, crosshair and text goes behind gui
-        //DrawMouseline();
+        DrawMouseline();
         DrawCrosshairs();
-        //DrawMessages();
+        DrawMessages();
 
         // draw the GUI
         ImguiDrawOverlay();
@@ -2307,7 +2481,9 @@ public:
         ImGui_ImplSDL2_Shutdown();
         ImGui::DestroyContext();
 
-        //glDeleteShader(
+        glDeleteProgram( m_shaderColor );
+        glDeleteProgram( m_shaderTexture );
+        glDeleteProgram( m_shaderAlphaTexture );
 
         // Delete our OpengL context
         SDL_GL_DeleteContext( mainGLContext );
@@ -2388,7 +2564,7 @@ int main( int argc, char ** argv )
     bool userHasSpecifiedResolution = ( width != DEFAULT_WINDOW_WIDTH ) ||
                                       ( height != DEFAULT_WINDOW_HEIGHT );
 
-    // FIXME: should be singleton
+    // TODO: should be singleton
     //  Application & app = Application::GetApplication();
 
     // declare our app
