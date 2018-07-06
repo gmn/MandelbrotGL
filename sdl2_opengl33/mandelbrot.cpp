@@ -942,7 +942,7 @@ private:
     bool gl_filter_on;
     GLuint m_shaderColor;
     GLuint m_shaderTexture;
-    GLuint m_shaderAlphaTexture;
+    GLuint m_shaderColorTexture;
 
     int m_AttribTexColors;
     int m_AttribPosition ;
@@ -1093,13 +1093,12 @@ public:
         //glEnable( GL_DEPTH_TEST );
 
         // blend
-        //glDisable( GL_BLEND ); // blend incoming colors with colors in the buffers
         glEnable( GL_BLEND ); // blend incoming colors with colors in the buffers
         glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
         glBlendEquation( GL_FUNC_ADD );
 
         // cull backfaces
-        glEnable(GL_CULL_FACE);
+        //glEnable(GL_CULL_FACE);
 
         // flat colors
         glShadeModel( GL_FLAT );
@@ -1208,7 +1207,7 @@ public:
         if ( !CreateShaderProgram_Texture( &m_shaderTexture ) ) {
             return false;
         }
-        if ( !CreateShaderProgram_AlphaTexture( &m_shaderAlphaTexture ) ) {
+        if ( !CreateShaderProgram_ColorTexture( &m_shaderColorTexture ) ) {
             return false;
         }
 
@@ -1403,61 +1402,41 @@ public:
         return true;
     }
 
-    bool CreateShaderProgram_AlphaTexture( GLuint * programID )
+    bool CreateShaderProgram_ColorTexture( GLuint * programID )
     {
         const char * vert_shader =
             "#version 150\n"
             "uniform mat4 ProjMtx;\n"
-            "in vec4 in_position;\n"
+            "uniform vec4 uColor;\n"
+            "in vec4 in_point;\n"
             "in vec2 in_texCoord;\n"
             "out vec2 inter_texCoord;\n"
+            "out vec4 inter_Color;\n"
             "void main(void)\n"
             "{\n"
             "   inter_texCoord = in_texCoord;\n"
-            "   gl_Position = ProjMtx * in_position;\n"
+            "   inter_Color = uColor;\n"
+            "   gl_Position = ProjMtx * in_point;\n"
             "}\n";
-
-        const char * geom_shader =
-            "#version 150\n"
-            "precision highp float;\n"
-            "layout (triangles) in;\n"
-            "layout (line_strip) out;\n"
-            "layout (max_vertices = 8) out;\n"
-            "in Vertex\n"
-            "{\n"
-            "   vec3 normal;\n"
-            "} vertex[];\n"
-            "// Uniform to hold the model-view-projection matrix\n"
-            "uniform mat4 mvp;\n"
-            "// Uniform to store the length of the visualized normals\n"
-            "uniform float normal_length;\n"
-            "for (int i = 0; i < gl_in.length(); i++) {\n"
-            "gl_Position = mvp * gl_in[i].gl_Position;\n"
-            "EmitVertex();\n"
-            "gl_Position = mvp * vec4(gl_in[i].gl_Position.xyz +\n"
-            "vertex[i].normal * normal_length, 1.0);\n"
-            "EmitVertex();\n"
-            "EndPrimitive();\n";
 
         const char * frag_shader =
             "#version 150\n"
             "precision highp float;\n"
-            "out vec4 out_fragColor;\n"
-            "uniform sampler2D texColors;\n"
+            "uniform sampler2D uTexColors;\n"
             "in vec2 inter_texCoord;\n"
+            "in vec4 inter_Color;\n"
+            "out vec4 out_fragColor;\n"
             "void main(void)\n"
             "{\n"
-            "   vec4 c = texture( texColors, inter_texCoord );\n"
-            "   if ( c.a < 0.1 )\n"
-            "       discard;\n"
-            "   out_fragColor = vec4(1,1,1,1);\n"
+            "   vec4 c = texture( uTexColors, inter_texCoord.st );\n"
+            "   out_fragColor = inter_Color * c.a;\n"
+            //"   out_fragColor = inter_Color * texture( uTexColors, inter_texCoord.st );\n"
             "}\n";
 
         if ( !CompileShaderPair( programID, vert_shader, frag_shader ) ) {
             fprintf( stderr, "Failure in Alpha Texture Shader Program\n" );
             return false;
         }
-
 
         return true;
     }
@@ -2030,33 +2009,27 @@ public:
                 if ( *text == '-' || *text == '=' ) y_off = y_off + y_off/2;
                 msg[ index++ ] = q.x0;
                 msg[ index++ ] = q.y0-y_off;
-                msg[ index++ ] = 0.0; msg[ index++ ] = 1.0;
+                msg[ index++ ] = 0.0f; msg[ index++ ] = 1.0f;
                 msg[ index++ ] = q.s0;
                 msg[ index++ ] = q.t0;
-
-                msg[ index++ ] = q.x1;
-                msg[ index++ ] = q.y0-y_off;
-                msg[ index++ ] = 0.0; msg[ index++ ] = 1.0;
-                msg[ index++ ] = q.s1;
-                msg[ index++ ] = q.t0;
-
-                msg[ index++ ] = q.x1;
-                msg[ index++ ] = q.y1-y_off;
-                msg[ index++ ] = 0.0; msg[ index++ ] = 1.0;
-                msg[ index++ ] = q.s1;
-                msg[ index++ ] = q.t1;
 
                 msg[ index++ ] = q.x0;
                 msg[ index++ ] = q.y1-y_off;
-                msg[ index++ ] = 0.0; msg[ index++ ] = 1.0;
+                msg[ index++ ] = 0.0f; msg[ index++ ] = 1.0f;
                 msg[ index++ ] = q.s0;
                 msg[ index++ ] = q.t1;
-/*
-                glTexCoord2f(q.s0,q.t1); glVertex2f(q.x0,q.y0-y_off);
-                glTexCoord2f(q.s0,q.t0); glVertex2f(q.x0,q.y1-y_off);
-                glTexCoord2f(q.s1,q.t0); glVertex2f(q.x1,q.y1-y_off);
-                glTexCoord2f(q.s1,q.t1); glVertex2f(q.x1,q.y0-y_off);
-*/
+
+                msg[ index++ ] = q.x1;
+                msg[ index++ ] = q.y1-y_off;
+                msg[ index++ ] = 0.0f; msg[ index++ ] = 1.0f;
+                msg[ index++ ] = q.s1;
+                msg[ index++ ] = q.t1;
+
+                msg[ index++ ] = q.x1;
+                msg[ index++ ] = q.y0-y_off;
+                msg[ index++ ] = 0.0f; msg[ index++ ] = 1.0f;
+                msg[ index++ ] = q.s1;
+                msg[ index++ ] = q.t0;
 
                 indices[ index_count++ ] = idx++;
                 indices[ index_count++ ] = idx++;
@@ -2064,7 +2037,7 @@ public:
                 indices[ index_count++ ] = idx++;
                 indices[ index_count++ ] = 0xFFFF;
             }
-            if ( ++index >= MSG_LEN-1 ) {
+            if ( index >= MSG_LEN-1 ) {
                 fprintf( stderr, "******Warning: message length hit end of crappy print buffer\n" );
                 break;
             }
@@ -2087,30 +2060,31 @@ public:
 
         const GLsizei stride = 6 * sizeof(float);
         glVertexAttribPointer( 0, 4, GL_FLOAT, GL_FALSE, stride, (GLvoid*)(  0 * sizeof(GLfloat) ) );
-        glVertexAttribPointer( 1, 2, GL_FLOAT, GL_FALSE, stride, (GLvoid*)( 16 * sizeof(GLfloat) ) );
+        glVertexAttribPointer( 1, 2, GL_FLOAT, GL_FALSE, stride, (GLvoid*)( 4 * sizeof(GLfloat) ) );
 
         // shader
         {
-            glUseProgram( m_shaderAlphaTexture );
+            glUseProgram( m_shaderColorTexture );
 
-            GLuint projmtrx = glGetUniformLocation( m_shaderAlphaTexture, "ProjMtx" );
-            GLuint texColor = glGetUniformLocation( m_shaderAlphaTexture, "texColors" );
-            GLuint position = glGetAttribLocation( m_shaderAlphaTexture, "in_position" );
-            GLuint texcoord = glGetAttribLocation( m_shaderAlphaTexture, "in_texCoord" );
+            GLuint projmtrx = glGetUniformLocation( m_shaderColorTexture, "ProjMtx" );
+            GLuint uTexColors = glGetUniformLocation( m_shaderColorTexture, "uTexColors" );
+            GLuint uColor = glGetUniformLocation( m_shaderColorTexture, "uColor" );
+            GLuint point = glGetAttribLocation( m_shaderColorTexture, "in_point" );
+            GLuint texcoord = glGetAttribLocation( m_shaderColorTexture, "in_texCoord" );
 
-            glUniform1i( texColor, 0 );
+            glUniformMatrix4fv( projmtrx, 1, GL_FALSE, m_OrthoProjection );
+            glUniform4f( uColor, 1.0f, 1.0f, 1.0f, 1.0f );
+            glUniform1i( uTexColors, 0 );
             if ( glBindSampler )
                 glBindSampler( 0, 0 );
 
-            glEnableVertexAttribArray( position );
+            glEnableVertexAttribArray( point );
             glEnableVertexAttribArray( texcoord );
-            glUniformMatrix4fv( projmtrx, 1, GL_FALSE, m_OrthoProjection );
         }
 
         glEnable( GL_PRIMITIVE_RESTART );
         glPrimitiveRestartIndex( 0xFFFF );
 
-        //glDrawArrays( GL_TRIANGLE_FAN, 0, index/6 );
         glDrawElements( GL_TRIANGLE_FAN, index_count, GL_UNSIGNED_SHORT, (const GLvoid*)0 );
 
         glBindTexture( GL_TEXTURE_2D, 0 );
@@ -2483,7 +2457,7 @@ public:
 
         glDeleteProgram( m_shaderColor );
         glDeleteProgram( m_shaderTexture );
-        glDeleteProgram( m_shaderAlphaTexture );
+        glDeleteProgram( m_shaderColorTexture );
 
         // Delete our OpengL context
         SDL_GL_DeleteContext( mainGLContext );
