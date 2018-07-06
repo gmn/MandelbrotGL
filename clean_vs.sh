@@ -1,7 +1,13 @@
 rm -rf Debug Release
-rm -rf sdl2_opengl22/Debug sdl2_opengl22/Release
-rm -rf sdl2_opengl22/.vs
 rm -rf glew SDL2
-rm -rf sdl2_opengl22/sdl_mandelbrot.vcxproj~
-rm -rf sdl2_opengl22/sdl_mandelbrot.vcxproj.user
-rm -rf sdl2_opengl22/.sdl_mandelbrot.vcxproj.un~
+for SUBDIR in sdl2_opengl{22,33} ; do
+    rm -rf ${SUBDIR}/Debug
+    rm -rf ${SUBDIR}/Release
+    rm -rf ${SUBDIR}/.vs
+    rm -rf ${SUBDIR}/sdl_mandelbrot.vcxproj~
+    rm -rf ${SUBDIR}/sdl_mandelbrot.vcxproj.user
+    rm -rf ${SUBDIR}/.sdl_mandelbrot.vcxproj.un~
+    rm -rf ${SUBDIR}/mandelbrot_gl.vcxproj~
+    rm -rf ${SUBDIR}/mandelbrot_gl.vcxproj.user
+    rm -rf ${SUBDIR}/.mandelbrot_gl.vcxproj.un~
+done
