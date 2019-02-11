@@ -1991,7 +1991,7 @@ public:
 
         GLushort idx = 0;
         GLushort index_count = 0;
-        GLushort indices[ 256 ];
+        GLushort indices[ 1024 ];
         memset( indices, 0, sizeof( indices ) );
 
         // assume orthographic projection with units = screen pixels, origin at top left
